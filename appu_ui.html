@@ -253,6 +253,54 @@
       margin-top: 3px;
     }
 
+    .memory-list {
+      max-height: 170px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .memory-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: #b8d8ee;
+    }
+
+    .memory-item small { display: block; color: #2e6284; margin-top: 2px; }
+
+    .memory-del, .approval-card button {
+      background: transparent;
+      border: 1px solid rgba(0, 229, 255, 0.4);
+      color: #00e5ff;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 10px;
+      letter-spacing: 1px;
+      padding: 2px 6px;
+    }
+
+    .memory-del:hover { border-color: #ff6b6b; color: #ff6b6b; }
+
+    .approval-card {
+      margin: 6px 0 14px 28px;
+      padding: 10px 12px;
+      border: 1px solid rgba(255, 196, 0, 0.5);
+      border-radius: 6px;
+      color: #ffd666;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .approval-card button { padding: 4px 12px; font-size: 11px; font-weight: 700; }
+    .approval-card button.no { border-color: rgba(255, 107, 107, 0.6); color: #ff6b6b; }
+
     /* ==============================================================
        CHAT AREA (Middle Timeline)
        ============================================================== */
@@ -824,6 +872,11 @@
           </div>
         </div>
 
+        <div class="projects-container" style="margin-top: 12px;">
+          <div class="projects-title">WHAT APPU REMEMBERS <span id="memory-count"></span></div>
+          <div id="memory-list" class="memory-list"></div>
+        </div>
+
         <div style="margin-top: 12px;">
           <a href="/avatar_prototype.html" target="_blank" style="text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(0, 229, 255, 0.12); border: 1px solid rgba(0, 229, 255, 0.4); padding: 8px 12px; border-radius: 6px; color: #00e5ff; font-size: 11px; font-weight: 600; letter-spacing: 1px; transition: all 0.2s; box-shadow: 0 0 10px rgba(0,229,255,0.15);" onmouseover="this.style.background='rgba(0, 229, 255, 0.25)'" onmouseout="this.style.background='rgba(0, 229, 255, 0.12)'">
             <span style="font-size: 16px;">🤖</span>
@@ -1374,11 +1427,16 @@ I can also open your registered Appu project in Visual Studio Code.</div>
         case 'tool_event':
           if (!ev.ok) window.face.set_state('empathetic', 'error');
           break;
+        case 'approval_required':
+          showApprovalCard(ev);
+          break;
         case 'done':
           turn.serverDone = true;
           turn.emotion = ev.emotion || 'happy';
           if (!turn.text && ev.answer) turn.el.textContent = ev.answer;
           if (ev.activity === 'success') window.face.set_state('confident', 'success');
+          if (ev.activity === 'approval_required') window.face.set_state('serious', 'approval_required');
+          loadMemories();
           break;
         case 'error':
           turn.serverDone = true;
@@ -1396,6 +1454,7 @@ I can also open your registered Appu project in Visual Studio Code.</div>
       if (currentTurn || isPlaying()) await stopTurn();
 
       cancelFollowUpWindow();
+      closeApprovalCards();
       isBusy = true;
       inputField.value = '';
       inputField.placeholder = 'Appu is responding... (Esc to stop)';
@@ -1895,6 +1954,94 @@ I can also open your registered Appu project in Visual Studio Code.</div>
         if (res.ok) enqueueAudio(await res.arrayBuffer(), playbackTurnId);
       } catch (e) {}
     }
+
+    // ==============================================================
+    // 7. APPROVALS, MEMORY PANEL AND DAILY BRIEFING
+    // ==============================================================
+    // A pending question can also be answered by saying or typing yes/no;
+    // sending any message closes the card (the server drops or resolves it).
+    function closeApprovalCards() {
+      document.querySelectorAll('.approval-card button').forEach((b) => b.remove());
+    }
+
+    function showApprovalCard(approval) {
+      const card = document.createElement('div');
+      card.className = 'approval-card';
+      card.innerHTML = `<span>⚠ ${escapeHtml(approval.prompt)}</span>`;
+      for (const [label, approve] of [['YES', true], ['NO', false]]) {
+        const btn = document.createElement('button');
+        btn.textContent = label;
+        if (!approve) btn.className = 'no';
+        btn.addEventListener('click', () => answerApproval(card, approval.id, approve));
+        card.appendChild(btn);
+      }
+      chatContainer.appendChild(card);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    async function answerApproval(card, id, approve) {
+      card.querySelectorAll('button').forEach((b) => b.remove());
+      try {
+        const res = await fetch('/api/approval', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, approve }),
+        });
+        const data = await res.json();
+        const text = data.text || data.error || 'Something went wrong.';
+        card.insertAdjacentHTML('beforeend', `<span style="color:#b8d8ee">${escapeHtml(text)}</span>`);
+        if (data.text && btnVoice.classList.contains('active')) speakAlert(text.split('\n')[0].slice(0, 280));
+        window.face.set_state(data.ok ? 'confident' : 'empathetic', data.ok ? 'success' : 'error');
+        loadMemories();
+      } catch (e) {
+        card.insertAdjacentHTML('beforeend', '<span>Could not reach Appu.</span>');
+      }
+    }
+
+    const memoryList = document.getElementById('memory-list');
+    async function loadMemories() {
+      try {
+        const { memories } = await (await fetch('/api/memories')).json();
+        document.getElementById('memory-count').textContent = memories.length ? `(${memories.length})` : '';
+        if (!memories.length) {
+          memoryList.innerHTML = '<div class="project-path">Nothing yet. Say "remember…" to add something.</div>';
+          return;
+        }
+        memoryList.innerHTML = '';
+        for (const m of memories) {
+          const row = document.createElement('div');
+          row.className = 'memory-item';
+          row.innerHTML = `<div style="flex:1">${escapeHtml(m.content)}<small>#${m.id} · ${escapeHtml(m.kind)} · ${escapeHtml(m.saved_on)}</small></div>`;
+          const del = document.createElement('button');
+          del.className = 'memory-del';
+          del.textContent = 'DELETE';
+          del.title = 'Forget this';
+          del.addEventListener('click', async () => {
+            if (!confirm(`Forget "${m.content}"?`)) return;
+            await fetch('/api/memories/delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: m.id }),
+            }).catch(() => {});
+            loadMemories();
+          });
+          row.appendChild(del);
+          memoryList.appendChild(row);
+        }
+      } catch (e) {}
+    }
+    loadMemories();
+
+    // First open of the day: ask for the briefing through the normal (spoken) chat path.
+    async function maybeDailyBriefing() {
+      try {
+        const status = await (await fetch('/api/status')).json();
+        if (!status.online) return;
+        const { due } = await (await fetch('/api/briefing/due')).json();
+        if (due && !currentTurn) sendUserMessage('Good morning! Give me my daily briefing.');
+      } catch (e) {}
+    }
+    setTimeout(maybeDailyBriefing, 1500);
 
     // Keyboard shortcut ⌘+Q
     window.addEventListener('keydown', (e) => {

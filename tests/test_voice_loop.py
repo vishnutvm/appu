@@ -232,7 +232,7 @@ class StreamingChatEndpointTests(unittest.TestCase):
             FakeOllamaStream(["You have no reminders."]),
         ]
         with patch("appu.urlopen", side_effect=responses), \
-                patch("appu.run_tool", return_value=appu.ToolOutcome(True, "No reminders found.")), \
+                patch("appu.run_tool", return_value=appu.ToolResult(True, "No reminders found.")), \
                 patch("builtins.print"):
             events = self.post_chat("what are my reminders")
 
@@ -244,6 +244,28 @@ class StreamingChatEndpointTests(unittest.TestCase):
         done = events[-1]
         self.assertTrue(done["executed_tool"])
         self.assertEqual(done["activity"], "success")
+
+    def test_confirm_tool_asks_then_spoken_yes_runs_it_without_the_model(self):
+        import memories
+        memory = memories.remember("Vishnu drinks filter coffee")
+        tool_calls = [{"function": {"name": "forget", "arguments": {"memory_id": memory["id"]}}}]
+        responses = [
+            FakeOllamaStream([""], tool_calls=tool_calls),
+            FakeOllamaStream(['Forget that "Vishnu drinks filter coffee"?']),
+        ]
+        with patch("appu.urlopen", side_effect=responses), patch("builtins.print"):
+            events = self.post_chat("forget that I drink filter coffee")
+        approval = next(e for e in events if e["type"] == "approval_required")
+        self.assertEqual(approval["tool"], "forget")
+        self.assertEqual(events[-1]["activity"], "approval_required")
+        self.assertIsNotNone(memories.get(memory["id"]))
+
+        with patch("appu.urlopen") as no_llm, patch("builtins.print"):
+            events = self.post_chat("yes")
+        no_llm.assert_not_called()
+        self.assertIsNone(memories.get(memory["id"]))
+        self.assertIn("Forgot", events[-1]["answer"])
+        self.assertEqual(events[-1]["activity"], "success")
 
     def test_stop_interrupts_running_turn(self):
         slow = FakeOllamaStream([f"word{i} " for i in range(50)], delay=0.05)

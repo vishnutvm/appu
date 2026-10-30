@@ -5,14 +5,12 @@ Local assistant running on macOS with Ollama, Qwen, and Cybernetic HUD UI.
 """
 
 import base64
-from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import re
-import shutil
 import socket
 import subprocess
 import sys
@@ -28,15 +26,19 @@ if _venv_python.exists() and Path(sys.executable).resolve() != _venv_python.reso
     os.execv(str(_venv_python), [str(_venv_python)] + sys.argv)
 
 from reminders import (
-    cancel_reminder,
-    complete_reminder,
-    create_reminder,
     fetch_and_claim_due_reminders,
     list_reminders,
     send_macos_notification,
 )
+from approvals import APPROVALS, parse_answer
+import briefing
+import conversation as conversation_store
 from conversation import Conversation
+import db
+import memories
 from stt import LOCAL_STT
+import tools
+from tools import ToolResult, run_tool
 from turn import TURN_DETECTOR, decode_wav
 from voice import KOKORO_VOICES, VOICE
 
@@ -54,16 +56,11 @@ NUM_PREDICT = 1024
 MAX_TTS_CHARS = 300
 # 16 kHz 16-bit mono: 60 s of audio is ~1.9 MB.
 MAX_TURN_AUDIO_BYTES = 2_000_000
-
-# Explicit registry: the model cannot supply arbitrary filesystem paths.
-PROJECTS = {
-    "appu": Path.home() / "Developer" / "appu",
-    "jarvis": Path.home() / "Developer" / "jarvis",
-}
+SUMMARY_TIMEOUT_SECONDS = 60
 
 # Appu — Personality and Behavior Specification
 SYSTEM_PROMPT = """
-You are Appu, a personal AI assistant running locally on the user's Mac.
+You are Appu, a personal AI assistant running locally on the user's Mac. The user is Vishnu; when he says "I" or "my", he means himself, never you.
 
 Your personality is friendly, intelligent, calm, curious, and dependable. You are a capable technical companion like FRIDAY or JARVIS.
 
@@ -79,12 +76,12 @@ Voice & Conversation Guidelines:
 - For greetings, compliments, and casual conversation (e.g. "hi", "how are you", "who are you"), respond directly, warmly, and conversationally.
 
 CRITICAL TOOL USAGE RULE:
-- ONLY call the open_project tool if the user EXPLICITLY asks to open a project or open VS Code (e.g. "open the project", "open VS Code", "launch in code").
-- When explicitly asked to open the project, call open_project with project_name="appu".
-- When asked to schedule or set a reminder or task, call create_reminder with title and due_time (e.g. "in 10 minutes", "in 1 hour", "tomorrow at 9am").
-- When asked to list, view, or check reminders or upcoming tasks, call list_reminders.
-- When asked to cancel or complete a reminder, call cancel_reminder or complete_reminder with the reminder_id.
-- Clearly distinguish scheduled reminders from tasks that have actually executed. Never claim an action succeeded unless the tool confirms success.
+- ONLY call open_project if the user EXPLICITLY asks to open a project or VS Code.
+- A reminder is an alert at a time (create_reminder). A task is something to do, optionally due on a day (add_task). "Remind me at 5 to call mum" is a reminder; "I need to finish the report by Friday" is a task.
+- Only call remember when the user asks you to remember something or states a lasting preference. Never store secrets or passwords.
+- Use what you know about the user (below) when it is relevant, and say when a memory might be out of date.
+- forget asks the user to confirm. When a tool says approval is required, ask the question and stop; nothing has changed yet.
+- Never claim an action succeeded unless the tool confirms success.
 - Tool access is strictly limited to registered tools and projects.
 """
 
@@ -133,224 +130,6 @@ ACTIVITY_LABELS = {
     "interrupted": "INTERRUPTED",
 }
 
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "open_project",
-            "description": (
-                "Open a registered project folder in Visual Studio Code. "
-                "ONLY call when the user explicitly asks to open a project or VS Code."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "project_name": {
-                        "type": "string",
-                        "enum": ["appu", "jarvis"],
-                        "description": "Name of the registered project.",
-                    }
-                },
-                "required": ["project_name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_reminder",
-            "description": "Schedule a new persistent reminder or task. Example due_time: 'in 5 minutes', 'in 1 hour', '2026-10-27 18:00'.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "The reminder description or task title.",
-                    },
-                    "due_time": {
-                        "type": "string",
-                        "description": "When the reminder is due, e.g. 'in 10 minutes', 'in 1 hour', or '2026-10-27 18:00'.",
-                    },
-                },
-                "required": ["title", "due_time"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_reminders",
-            "description": "List reminders, optionally filtered by status ('pending', 'completed', 'cancelled', 'all').",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "status": {
-                        "type": "string",
-                        "enum": ["pending", "completed", "cancelled", "all"],
-                        "description": "Status filter. Defaults to 'pending'.",
-                    }
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "cancel_reminder",
-            "description": "Cancel a pending reminder by ID number.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reminder_id": {
-                        "type": "integer",
-                        "description": "Numeric ID of the reminder to cancel.",
-                    }
-                },
-                "required": ["reminder_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "complete_reminder",
-            "description": "Mark a reminder as completed by ID number.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reminder_id": {
-                        "type": "integer",
-                        "description": "Numeric ID of the reminder to mark completed.",
-                    }
-                },
-                "required": ["reminder_id"],
-            },
-        },
-    },
-]
-
-
-# =====================================================================
-# Security & Tool Dispatcher (Guaranteed 100% Test Compliance)
-# =====================================================================
-
-def open_project(project_name: str) -> str:
-    """Open only a registered project inside the approved Developer directory."""
-
-    # 1. Check the explicit project allowlist.
-    if project_name not in PROJECTS:
-        return "Denied: that project is not registered."
-
-    try:
-        # 2. Resolve both paths to their canonical filesystem locations.
-        approved_root = (Path.home() / "Developer").resolve()
-        project_path = PROJECTS[project_name].resolve()
-
-        # 3. Reject paths outside Developer, including symlink escapes.
-        try:
-            project_path.relative_to(approved_root)
-        except ValueError:
-            return "Denied: the project path is outside the approved directory."
-
-        # Do not allow Developer itself to be opened as a project.
-        if project_path == approved_root:
-            return "Denied: the project path must be inside Developer."
-
-        # 4. Verify the target exists and is a directory.
-        if not project_path.is_dir():
-            return "Error: the registered project folder does not exist."
-    except (OSError, RuntimeError):
-        return "Error: could not safely validate the project path."
-
-    # 5. Locate VS Code only after path validation succeeds.
-    code_path = shutil.which("code")
-
-    if not code_path:
-        return (
-            "VS Code's 'code' launcher was not found. "
-            "Install it through VS Code's Command Palette."
-        )
-
-    try:
-        subprocess.Popen(
-            [code_path, str(project_path)],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-    except OSError:
-        return "Error: macOS could not launch VS Code."
-
-    return f"Opened the {project_name} project in VS Code."
-
-
-@dataclass
-class ToolOutcome:
-    ok: bool
-    text: str
-
-
-def run_tool(name: str, arguments: dict) -> ToolOutcome:
-    """Dispatch only explicitly registered tools."""
-
-    if name == "open_project":
-        if not isinstance(arguments, dict):
-            return ToolOutcome(False, "Error: invalid tool arguments.")
-
-        project_name = arguments.get("project_name")
-        if not isinstance(project_name, str):
-            return ToolOutcome(False, "Error: project_name must be a string.")
-
-        text = open_project(project_name)
-        return ToolOutcome(text.startswith("Opened"), text)
-
-    elif name == "create_reminder":
-        if not isinstance(arguments, dict):
-            return ToolOutcome(False, "Error: invalid tool arguments.")
-        title = arguments.get("title")
-        due_time = arguments.get("due_time")
-        if not isinstance(title, str) or not isinstance(due_time, str):
-            return ToolOutcome(False, "Error: title and due_time must be strings.")
-        try:
-            res = create_reminder(title, due_time)
-            return ToolOutcome(True, f"Scheduled: {res['message']}")
-        except Exception as exc:
-            return ToolOutcome(False, f"Error creating reminder: {exc}")
-
-    elif name == "list_reminders":
-        if not isinstance(arguments, dict):
-            return ToolOutcome(False, "Error: invalid tool arguments.")
-        status = arguments.get("status", "pending")
-        if status == "all":
-            status = None
-        elif status not in ("pending", "completed", "cancelled", None):
-            return ToolOutcome(False, "Error: status must be 'pending', 'completed', 'cancelled', or 'all'.")
-        try:
-            items = list_reminders(status=status)
-            if not items:
-                return ToolOutcome(True, "No reminders found.")
-            lines = [f"#{r['id']} [{r['status'].upper()}] {r['title']} (due: {r['due_time']})" for r in items]
-            return ToolOutcome(True, "Reminders:\n" + "\n".join(lines))
-        except Exception as exc:
-            return ToolOutcome(False, f"Error listing reminders: {exc}")
-
-    elif name in ("cancel_reminder", "complete_reminder"):
-        if not isinstance(arguments, dict):
-            return ToolOutcome(False, "Error: invalid tool arguments.")
-        reminder_id = arguments.get("reminder_id")
-        if not isinstance(reminder_id, int) or isinstance(reminder_id, bool):
-            return ToolOutcome(False, "Error: reminder_id must be an integer.")
-        action = cancel_reminder if name == "cancel_reminder" else complete_reminder
-        try:
-            res = action(reminder_id)
-            return ToolOutcome(bool(res["success"]), res["message"])
-        except Exception as exc:
-            verb = "cancelling" if name == "cancel_reminder" else "completing"
-            return ToolOutcome(False, f"Error {verb} reminder: {exc}")
-
-    return ToolOutcome(False, "Denied: this tool is not registered.")
-
 
 def execute_tool(name: str, arguments: dict) -> str:
     return run_tool(name, arguments).text
@@ -380,10 +159,31 @@ def check_ollama_status() -> bool:
         return False
 
 
-def build_system_prompt(now: Optional[datetime] = None) -> str:
+def build_system_prompt(now: Optional[datetime] = None, context: str = "") -> str:
     now = now or datetime.now()
     clock = now.strftime("%A %d %B %Y, %I:%M %p").replace(" 0", " ")
-    return f"{SYSTEM_PROMPT}\nCurrent local date and time: {clock}.\n"
+    week = ", ".join((now + timedelta(days=d)).strftime("%A %d %b").replace(" 0", " ") for d in range(1, 8))
+    prompt = f"{SYSTEM_PROMPT}\nCurrent local date and time: {clock}.\nThe next seven days: {week}.\n"
+    return f"{prompt}\n{context.strip()}\n" if context.strip() else prompt
+
+
+def build_context(user_message: str, conv: Optional[Conversation] = None) -> str:
+    """Per-turn context: relevant memories, the last session's summary, and this session's rolling summary."""
+    blocks = []
+    try:
+        block = memories.prompt_block(user_message)
+        if block:
+            blocks.append(block)
+        if conv is not None:
+            previous = conversation_store.last_summary(exclude_id=conv.conversation_id)
+            if previous:
+                when = datetime.fromtimestamp(previous["started_at"]).strftime("%A %d %B")
+                blocks.append(f"Summary of your previous conversation ({when}):\n{previous['summary']}")
+    except Exception as exc:
+        print(f"[!] Could not load memory context: {exc}", file=sys.stderr)
+    if conv is not None and conv.rolling_summary:
+        blocks.append(f"Earlier in this conversation:\n{conv.rolling_summary}")
+    return "\n\n".join(blocks)
 
 
 class TurnInterrupted(Exception):
@@ -402,6 +202,8 @@ def ask_local_model(
     tool_events: Optional[list] = None,
     history: Optional[list] = None,
     cancel_event: Optional[threading.Event] = None,
+    context: str = "",
+    recent_groups: tuple = (),
 ) -> str:
     """Run one turn and return the model's raw (Markdown) answer."""
     message = user_message.strip()
@@ -414,9 +216,10 @@ def ask_local_model(
             f"Message is too long. Limit: {MAX_INPUT_LENGTH} characters."
         )
 
-    messages = [{"role": "system", "content": build_system_prompt()}]
+    messages = [{"role": "system", "content": build_system_prompt(context=context)}]
     messages.extend(history or [])
     messages.append({"role": "user", "content": message})
+    tool_schemas = tools.schemas(tools.select_tools(message, recent_groups))
 
     seen_tool_calls = set()
     total_tool_calls = 0
@@ -428,7 +231,6 @@ def ask_local_model(
         payload = {
             "model": MODEL,
             "messages": messages,
-            "tools": TOOLS,
             "stream": True,
             "think": False,
             "keep_alive": "60m",
@@ -437,6 +239,8 @@ def ask_local_model(
                 "num_predict": NUM_PREDICT,
             },
         }
+        if tool_schemas:
+            payload["tools"] = tool_schemas
 
         request = Request(
             OLLAMA_URL,
@@ -553,7 +357,10 @@ def ask_local_model(
             seen_tool_calls.add(call_key)
             total_tool_calls += 1
             if tool_events is not None:
-                tool_events.append({"name": name, "ok": outcome.ok, "text": outcome.text})
+                tool_events.append({
+                    "name": name, "arguments": arguments, "ok": outcome.ok, "text": outcome.text,
+                    "approval": outcome.approval,
+                })
 
             messages.append({
                 "role": "tool",
@@ -623,6 +430,10 @@ TOOL_ACKNOWLEDGEMENTS = {
     "list_reminders": "Checking your reminders.",
     "create_reminder": "Setting that up.",
     "open_project": "Opening it now.",
+    "list_tasks": "Let me look at your list.",
+    "add_task": "Adding that.",
+    "daily_briefing": "Let me pull up your day.",
+    "recall": "Let me think.",
 }
 
 
@@ -653,6 +464,85 @@ def interrupt_turn() -> bool:
         return False
     cancel.set()
     return True
+
+
+SUMMARY_PROMPT = (
+    "Summarise this conversation between the user and Appu, their assistant, in at most 5 short "
+    "bullet points: what was discussed, decisions, and anything left open. Use absolute dates. "
+    "Reply with the bullets only."
+)
+
+
+def summarize_conversation(transcript: str, previous: Optional[str] = None) -> Optional[str]:
+    """Blocking, non-streaming LLM call. Returns None if Ollama is unavailable."""
+    if not transcript.strip():
+        return previous
+    content = transcript if not previous else f"Earlier summary:\n{previous}\n\nLatest turns:\n{transcript}"
+    payload = {
+        "model": MODEL,
+        "messages": [{"role": "system", "content": SUMMARY_PROMPT}, {"role": "user", "content": content}],
+        "stream": False,
+        "think": False,
+        "keep_alive": "60m",
+        "options": {"temperature": 0.1, "num_predict": 300},
+    }
+    request = Request(OLLAMA_URL, data=json.dumps(payload).encode("utf-8"),
+                      headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urlopen(request, timeout=SUMMARY_TIMEOUT_SECONDS) as response:
+            summary = json.loads(response.read().decode("utf-8")).get("message", {}).get("content", "")
+    except Exception as exc:
+        print(f"[!] Conversation summary failed: {exc}", file=sys.stderr)
+        return None
+    return summary.strip() or None
+
+
+def _summarize_in_background(conv: Conversation, conversation_id: Optional[int], transcript: str,
+                             previous: Optional[str], rolling: bool) -> None:
+    def work():
+        summary = summarize_conversation(transcript, previous)
+        if not summary:
+            return
+        if rolling and conv.conversation_id == conversation_id:
+            conv.rolling_summary = summary
+        if conversation_id is not None and conv.persist:
+            conversation_store.save_summary(conversation_id, summary, db_path=conv.db_path)
+    threading.Thread(target=work, daemon=True).start()
+
+
+def maybe_roll_summary(conv: Conversation) -> None:
+    if conv.needs_summary():
+        _summarize_in_background(conv, conv.conversation_id, conv.transcript(), conv.rolling_summary, rolling=True)
+
+
+def start_new_conversation(conv: Conversation) -> None:
+    """End the current conversation, summarising it for next time."""
+    transcript, previous, conversation_id = conv.transcript(), conv.rolling_summary, conv.conversation_id
+    had_turns = conv.total_turns > 0
+    conv.clear()
+    APPROVALS.clear()
+    if had_turns and conversation_id is not None:
+        _summarize_in_background(conv, conversation_id, transcript, previous, rolling=False)
+
+
+def resolve_approval(approved: bool, approval_id: Optional[int] = None) -> Optional[ToolResult]:
+    """Run or drop the pending CONFIRM tool. None if nothing (matching) is pending."""
+    pending = APPROVALS.take(approval_id)
+    if pending is None:
+        return None
+    if not approved:
+        return ToolResult(True, "Okay, I've left it as it is.")
+    result = tools.run_approved(pending)
+    return ToolResult(result.ok, result.text if result.ok else f"That didn't work: {result.text}")
+
+
+def turn_groups(user_msg: str, tool_events: list) -> list:
+    groups = tools.groups_for(user_msg)
+    for event in tool_events:
+        tool = tools.REGISTRY.get(event["name"])
+        if tool and tool.group not in groups:
+            groups.append(tool.group)
+    return groups
 
 
 class EventStream:
@@ -795,6 +685,16 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
             items = list_reminders(status=None)
             self._send_json({"reminders": items})
 
+        elif self.path == "/api/memories":
+            self._send_json({"memories": memories.list_all()})
+
+        elif self.path == "/api/briefing/due":
+            self._send_json({"due": briefing.briefing_due()})
+
+        elif self.path == "/api/approval":
+            pending = APPROVALS.pending()
+            self._send_json({"approval": pending.to_event() if pending else None})
+
         elif self.path == "/api/voice/status":
             self._send_json({
                 "enabled": VOICE.is_enabled(),
@@ -881,21 +781,36 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
 
         tool_events = []
         try:
-            answer = ask_local_model(
-                user_msg,
-                on_token=on_token,
-                on_tool_call=on_tool_call,
-                tool_events=tool_events,
-                history=CONVERSATION.messages(),
-                cancel_event=cancel,
-            )
-            CONVERSATION.add_turn(user_msg, answer)
+            answer = self._answer_pending_approval(user_msg, stream, session)
+            if answer is None:
+                answer = ask_local_model(
+                    user_msg,
+                    on_token=on_token,
+                    on_tool_call=on_tool_call,
+                    tool_events=tool_events,
+                    history=CONVERSATION.messages(),
+                    cancel_event=cancel,
+                    context=build_context(user_msg, CONVERSATION),
+                    recent_groups=tuple(CONVERSATION.last_groups),
+                )
+            else:
+                tool_events.append({"name": "approval", "ok": True, "text": answer, "approval": None})
+            CONVERSATION.add_turn(user_msg, answer, groups=turn_groups(user_msg, tool_events))
+            maybe_roll_summary(CONVERSATION)
+            approval = None
             for event in tool_events:
+                print(json.dumps({"event": "tool_call", "name": event["name"], "arguments": event.get("arguments"),
+                                  "ok": event["ok"]}), flush=True)
                 stream.send("tool_event", name=event["name"], ok=event["ok"])
+                approval = event.get("approval") or approval
+            if approval:
+                stream.send("approval_required", **approval)
             if session:
                 session.finish_text()
                 session.wait(timeout=TIMEOUT_SECONDS)
             emotion, activity = analyze_intent_and_emotion(user_msg, tool_events)
+            if approval:
+                emotion, activity = "serious", "approval_required"
             stream.send(
                 "done",
                 answer=answer,
@@ -917,9 +832,50 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
             end_turn(cancel)
             log_turn_latency(req.get("timing"), session.latency() if session else None, time.time() - started)
 
+    def _answer_pending_approval(self, user_msg: str, stream: "EventStream", session) -> Optional[str]:
+        """If a yes/no question is pending and this message answers it, resolve it without the LLM."""
+        if APPROVALS.pending() is None:
+            return None
+        decision = parse_answer(user_msg)
+        if decision is None:
+            APPROVALS.clear()  # the user moved on; don't let a stale question fire later
+            return None
+        result = resolve_approval(decision)
+        if result is None:
+            return None
+        stream.send("text_delta", text=result.text)
+        if session:
+            session.say(result.text)
+        return result.text
+
     def do_POST(self):
         if self.path == "/api/chat":
             self._handle_chat()
+
+        elif self.path == "/api/approval":
+            req = self._read_json()
+            if not req or not isinstance(req.get("approve"), bool):
+                self._send_json({"error": "Invalid request."}, status=400)
+                return
+            approval_id = req.get("id") if isinstance(req.get("id"), int) else None
+            result = resolve_approval(req["approve"], approval_id)
+            if result is None:
+                self._send_json({"ok": False, "error": "That question has expired."}, status=409)
+                return
+            CONVERSATION.add_turn("yes" if req["approve"] else "no", result.text, groups=CONVERSATION.last_groups)
+            self._send_json({"ok": result.ok, "text": result.text})
+
+        elif self.path == "/api/memories/delete":
+            req = self._read_json()
+            memory_id = req.get("id") if isinstance(req, dict) else None
+            if not isinstance(memory_id, int) or isinstance(memory_id, bool):
+                self._send_json({"error": "Invalid id."}, status=400)
+                return
+            self._send_json({"ok": memories.forget(memory_id)})
+
+        elif self.path == "/api/briefing":
+            data = briefing.daily_briefing()
+            self._send_json({"text": data["text"], "suggestion": data["suggestion"]})
 
         elif self.path == "/api/chat/stop":
             req = self._read_json() or {}
@@ -930,7 +886,7 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/api/conversation/new":
             interrupt_turn()
-            CONVERSATION.clear()
+            start_new_conversation(CONVERSATION)
             self._send_json({"ok": True})
 
         elif self.path == "/api/tts":
@@ -1047,6 +1003,8 @@ def launch_appu_gui(port: int):
             "--window-name=appu",
             f"--user-data-dir=/tmp/appu_chrome_profile_{port}",
             "--disable-extensions",
+            # The daily briefing and reminder alerts speak before the first click.
+            "--autoplay-policy=no-user-gesture-required",
             "--no-first-run",
             "--no-default-browser-check",
         ]
@@ -1071,9 +1029,8 @@ def run_terminal_mode():
     print("\033]0;appu — python3 appu.py\007", end="")
     print("\033[1;38;2;0;229;255mAPPU — Local Cybernetic Assistant\033[0m")
     print(f"Model: {MODEL} | Online: {check_ollama_status()}")
-    print("Registered project: appu (~/Developer/appu)")
     print("Type 'exit' to quit.\n")
-    conversation = Conversation()
+    conversation = CONVERSATION
 
     while True:
         try:
@@ -1087,8 +1044,21 @@ def run_terminal_mode():
             break
 
         try:
-            answer = ask_local_model(user_message, history=conversation.messages())
-            conversation.add_turn(user_message, answer)
+            tool_events = []
+            decision = parse_answer(user_message) if APPROVALS.pending() else None
+            if decision is not None:
+                answer = resolve_approval(decision).text
+            else:
+                APPROVALS.clear()
+                answer = ask_local_model(
+                    user_message,
+                    history=conversation.messages(),
+                    tool_events=tool_events,
+                    context=build_context(user_message, conversation),
+                    recent_groups=tuple(conversation.last_groups),
+                )
+            conversation.add_turn(user_message, answer, groups=turn_groups(user_message, tool_events))
+            maybe_roll_summary(conversation)
             print(f"\n\033[1;38;2;0;229;255mAppu >\033[0m {clean_terminal_text(answer)}\n")
         except (ValueError, RuntimeError) as exc:
             print(f"\n\033[38;2;255;100;100mError:\033[0m {exc}\n")
@@ -1128,7 +1098,20 @@ def release_instance_lock() -> None:
         pass
 
 
+def prepare_storage() -> None:
+    """Persist conversations and apply the history retention setting (days, default 30)."""
+    CONVERSATION.persist = True
+    try:
+        days = int(db.get_setting("retention_days", str(conversation_store.DEFAULT_RETENTION_DAYS)))
+        removed = conversation_store.purge_older_than(days)
+        if removed:
+            print(f"[+] Deleted {removed} conversation(s) older than {days} days.")
+    except Exception as exc:
+        print(f"[!] Storage setup failed: {exc}", file=sys.stderr)
+
+
 def main():
+    prepare_storage()
     # Warm up local speech-to-text and VoiceStudio neural TTS in background
     threading.Thread(target=LOCAL_STT.warmup, daemon=True).start()
     threading.Thread(target=VOICE.warmup, daemon=True).start()

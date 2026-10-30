@@ -87,14 +87,25 @@ hundreds of memories). Add a local embedding model later (see `models.md`).
 
 ## Checklist
 
-- [ ] Create `data/appu.db`, migrate reminders, add `memories`, `tasks`, `conversations`.
-- [ ] Add FTS5 index on `memories.content` and `tasks.title`.
-- [ ] Implement the tools above in a `tools/` package with a registry (see `04-skills.md`).
-- [ ] Inject profile + relevant memories + last summary into the prompt.
-- [ ] Rolling conversation summary.
-- [ ] Daily briefing.
-- [ ] "What Appu remembers" panel with delete.
-- [ ] Tests: memory CRUD, recall ranking, task filters, briefing content, prompt assembly.
+- [x] Create `data/appu.db`, migrate reminders, add `memories`, `tasks`, `conversations`.
+      `db.py` copies `data/reminders.db` once on first start, then renames it.
+- [x] Add FTS5 index on `memories.content` and `tasks.title`.
+- [x] Implement the tools above in a `tools/` package with a registry (see `04-skills.md`).
+      `forget` waits for a spoken/typed yes (`approvals.py`).
+- [x] Inject profile + relevant memories + last summary into the prompt.
+      The prompt also lists the next seven dates so the local model resolves "next Friday".
+- [x] Rolling conversation summary.
+- [x] Daily briefing (`/api/briefing/due`; the UI asks for it on the first open of the day).
+- [x] "What Appu remembers" panel with delete.
+- [x] Tests: memory CRUD, recall ranking, task filters, briefing content, prompt assembly
+      (`tests/test_memory_tasks.py`).
+- [ ] Optional: propose new memories from the summary ("Should I remember that?").
+- [ ] Optional: setting UI for history retention (stored as `retention_days`, default 30).
+
+Verified live (qwen3.5:4b, isolated DB): "Remember I'm on leave next Friday" saved
+once as "Vishnu is on leave on Friday 6 November 2026"; in a new conversation
+"Am I free next Friday?" answered from memory; "What do I need to do today?" read
+tasks; the briefing covered tasks and reminders; "forget…" asked before deleting.
 
 ## Done when
 

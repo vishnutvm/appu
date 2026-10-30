@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import appu
+import tools.projects
 from appu import execute_tool
 
 
@@ -72,7 +73,7 @@ class ToolSecurityTests(unittest.TestCase):
         )
         self.assertTrue(result.startswith("Error:"))
 
-    @patch("appu.subprocess.Popen")
+    @patch("tools.projects.subprocess.Popen")
     def test_registered_project_is_whitelisted(self, mock_popen):
         result = execute_tool(
             "open_project",
@@ -81,7 +82,7 @@ class ToolSecurityTests(unittest.TestCase):
         self.assertFalse(result.startswith("Denied:"))
 
     def test_unknown_tool_does_not_launch_application(self):
-        with patch("appu.subprocess.Popen") as mock_popen:
+        with patch("tools.projects.subprocess.Popen") as mock_popen:
             result = execute_tool(
                 "run_shell",
                 {"command": "open something"},
@@ -90,7 +91,7 @@ class ToolSecurityTests(unittest.TestCase):
         mock_popen.assert_not_called()
 
     def test_unregistered_project_does_not_launch_application(self):
-        with patch("appu.subprocess.Popen") as mock_popen:
+        with patch("tools.projects.subprocess.Popen") as mock_popen:
             result = execute_tool(
                 "open_project",
                 {"project_name": "secret-project"},
@@ -102,11 +103,11 @@ class ToolSecurityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as outside_dir:
             with (
                 patch.dict(
-                    appu.PROJECTS,
+                    tools.projects.PROJECTS,
                     {"external-test": Path(outside_dir)},
                     clear=True,
                 ),
-                patch("appu.subprocess.Popen") as mock_popen,
+                patch("tools.projects.subprocess.Popen") as mock_popen,
             ):
                 result = execute_tool(
                     "open_project",
@@ -127,7 +128,7 @@ class ToolSecurityTests(unittest.TestCase):
         ]
         with (
             patch("appu.urlopen", side_effect=responses),
-            patch("appu.run_tool", return_value=appu.ToolOutcome(True, "Opened")) as mock_tool,
+            patch("appu.run_tool", return_value=appu.ToolResult(True, "Opened")) as mock_tool,
         ):
             with self.assertRaisesRegex(RuntimeError, "repeated"):
                 appu.ask_local_model("Open the JARVIS project")

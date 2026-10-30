@@ -1,6 +1,6 @@
 """
-APPU Reminders Engine — Local SQLite-backed reminder & task scheduler.
-Provides persistent storage, due-time calculation, and background notification triggers.
+APPU Reminders Engine — reminders stored in data/appu.db, due-time parsing,
+and background notification triggers.
 """
 
 from datetime import datetime, timedelta
@@ -11,44 +11,91 @@ import subprocess
 import time
 from typing import Any, Dict, List, Optional
 
+import db
 
-DEFAULT_DB_PATH = Path.home() / "Developer" / "jarvis" / "data" / "reminders.db"
+
+WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 
 def get_db_path() -> Path:
-    db_path = DEFAULT_DB_PATH
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    return db_path
+    return db.get_db_path()
 
 
 def _get_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
-    path = db_path or get_db_path()
-    conn = sqlite3.connect(path, timeout=10.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA busy_timeout=5000;")
-    return conn
+    return db.connect(db_path or get_db_path())
 
 
 def init_db(db_path: Optional[Path] = None) -> None:
-    conn = _get_connection(db_path)
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS reminders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                due_timestamp REAL NOT NULL,
-                due_time_str TEXT NOT NULL,
-                status TEXT NOT NULL CHECK(status IN ('pending', 'notified', 'completed', 'cancelled')),
-                notified INTEGER NOT NULL DEFAULT 0,
-                created_at REAL NOT NULL
-            )
-            """
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    _get_connection(db_path).close()
+
+
+def _parse_clock(hour: int, minute: int, meridiem: Optional[str]) -> tuple[int, int]:
+    if meridiem == "pm" and hour < 12:
+        hour += 12
+    elif meridiem == "am" and hour == 12:
+        hour = 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError("Invalid time of day.")
+    return hour, minute
+
+
+def _weekday_date(name: str, now: datetime, next_week: bool = False) -> datetime:
+    """
+    'friday' is the coming Friday (today if it is Friday).
+    'next friday' is the Friday of next week (weeks start on Monday).
+    """
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if next_week:
+        next_monday = midnight + timedelta(days=7 - now.weekday())
+        return next_monday + timedelta(days=WEEKDAYS.index(name))
+    return midnight + timedelta(days=(WEEKDAYS.index(name) - now.weekday()) % 7)
+
+
+def parse_due_date(text: str, now: Optional[datetime] = None) -> tuple[float, str]:
+    """
+    Parse a due date for a task: 'today', 'tomorrow', 'friday', 'next friday',
+    'in 3 days', '2026-11-06', optionally with a time ('friday at 5pm').
+    Without a time the task is due at the end of that day (23:59).
+    Returns (epoch_timestamp, 'YYYY-MM-DD HH:MM').
+    """
+    now = now or datetime.now()
+    clean = re.sub(r"^(on|by|due)\s+", "", text.strip().lower())
+
+    time_part = re.search(r"(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$", clean)
+    day_part = clean[:time_part.start()].strip() if time_part else clean
+
+    day = None
+    if day_part in ("today", "tonight"):
+        day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif day_part == "tomorrow":
+        day = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif m := re.fullmatch(r"(next\s+|this\s+)?(" + "|".join(WEEKDAYS) + r")", day_part):
+        day = _weekday_date(m.group(2), now, next_week=bool(m.group(1) and m.group(1).startswith("next")))
+    elif m := re.fullmatch(r"in\s+(\d+)\s+(day|days|week|weeks)", day_part):
+        qty = int(m.group(1)) * (7 if m.group(2).startswith("week") else 1)
+        day = (now + timedelta(days=qty)).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif day_part in ("next week",):
+        day = (now + timedelta(days=7 - now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        try:
+            day = datetime.strptime(day_part, "%Y-%m-%d")
+        except ValueError:
+            day = None
+
+    if day is None:
+        # Fall back to reminder-style times ("in 2 hours", "5pm", "2026-11-06 10:00").
+        ts, _ = parse_due_time(text)
+        target = datetime.fromtimestamp(ts)
+        return target.timestamp(), target.strftime("%Y-%m-%d %H:%M")
+
+    if time_part:
+        hour, minute = _parse_clock(int(time_part.group(1)), int(time_part.group(2) or 0), time_part.group(3))
+        target = day.replace(hour=hour, minute=minute)
+        if target <= now and day_part in WEEKDAYS:
+            target += timedelta(days=7)
+    else:
+        target = day.replace(hour=23, minute=59)
+    return target.timestamp(), target.strftime("%Y-%m-%d %H:%M")
 
 
 def parse_due_time(time_str: str) -> tuple[float, str]:
@@ -58,7 +105,16 @@ def parse_due_time(time_str: str) -> tuple[float, str]:
     Returns (epoch_timestamp, formatted_human_string).
     """
     now = datetime.now()
-    clean_str = time_str.strip().lower()
+    clean_str = re.sub(r"^(at|on|by)\s+", "", time_str.strip().lower())
+
+    # Weekday with a time: "friday at 5pm", "next monday 9:30 am"
+    weekday_match = re.match(
+        r"^(next\s+)?(" + "|".join(WEEKDAYS) + r")(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$", clean_str
+    )
+    if weekday_match:
+        ts, _ = parse_due_date(clean_str, now)
+        target = datetime.fromtimestamp(ts)
+        return target.timestamp(), target.strftime("%Y-%m-%d %H:%M:%S")
 
     # Relative match: "in X seconds/minutes/hours/days"
     rel_match = re.match(r"^in\s+(\d+)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hr|hour|hours|d|day|days)$", clean_str)
