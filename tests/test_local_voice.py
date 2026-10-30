@@ -23,7 +23,7 @@ class TestLocalVoice(unittest.TestCase):
         self.assertNotIn("```", cleaned)
         self.assertNotIn("https://", cleaned)
         self.assertIn("Project Documentation", cleaned)
-        self.assertIn("Here is the code in your timeline.", cleaned)
+        self.assertIn("I've put the code on screen.", cleaned)
         self.assertNotIn("*", cleaned)
         self.assertNotIn("#1 [PENDING]", cleaned)
 

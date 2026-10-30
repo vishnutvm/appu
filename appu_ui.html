@@ -826,8 +826,8 @@
 
         <div style="margin-top: 12px;">
           <a href="/avatar_prototype.html" target="_blank" style="text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(0, 229, 255, 0.12); border: 1px solid rgba(0, 229, 255, 0.4); padding: 8px 12px; border-radius: 6px; color: #00e5ff; font-size: 11px; font-weight: 600; letter-spacing: 1px; transition: all 0.2s; box-shadow: 0 0 10px rgba(0,229,255,0.15);" onmouseover="this.style.background='rgba(0, 229, 255, 0.25)'" onmouseout="this.style.background='rgba(0, 229, 255, 0.12)'">
-            <span style="font-size: 15px;">👩</span>
-            <span>LAUNCH 3D AVATAR PROTOTYPE ↗</span>
+            <span style="font-size: 16px;">🤖</span>
+            <span>LAUNCH 3D ROBOT PROTOTYPE ↗</span>
           </a>
         </div>
       </div>
@@ -851,7 +851,6 @@ I can also open your registered Appu project in Visual Studio Code.</div>
     <div class="input-wrapper">
       <div class="speech-preview-bar" id="speech-preview">
         <span id="speech-preview-text">🎙️ Listening...</span>
-        <span style="font-size: 10px; color: #6e9aaa;">[Review before Enter]</span>
       </div>
 
       <div class="chamfered-box">
@@ -871,13 +870,16 @@ I can also open your registered Appu project in Visual Studio Code.</div>
         <button id="btn-ptt" class="btn-ptt" title="Push-to-Talk (Hold or Click to Record)">
           <span>🎤</span> <span id="ptt-label">PTT</span>
         </button>
-        <button id="btn-vad" class="btn-voice" title="Voice Activity Detection (Auto-detect speech and silence pauses)">
-          <span>⚡</span> <span id="vad-label">VAD: OFF</span>
+        <button id="btn-vad" class="btn-voice" title="Hands-free conversation (Ctrl+Space)">
+          <span>⚡</span> <span id="vad-label">TALK: OFF</span>
+        </button>
+        <button id="btn-new" class="btn-voice" title="New conversation (Cmd+K)">
+          <span>＋</span> <span>NEW</span>
         </button>
         <button id="btn-voice" class="btn-voice active" title="Toggle Spoken Responses">
           <span id="voice-icon">🔊</span> <span id="voice-label">VOICE</span>
         </button>
-        <span class="input-hint">⌘Q quit</span>
+        <span class="input-hint">Esc stop · ⌘K new · ⌘Q quit</span>
       </div>
     </div>
 
@@ -1240,90 +1242,217 @@ I can also open your registered Appu project in Visual Studio Code.</div>
       return div.innerHTML;
     }
 
-    // Typewriter effect while in activity-speaking
-    async function typeReply(element, text, targetEmotion) {
-      window.face.set_state(targetEmotion, 'speaking');
-      element.innerText = '';
-      const words = text.split(/(\s+)/);
-      for (const word of words) {
-        element.innerText += word;
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-        await new Promise(r => setTimeout(r, 18));
+    // ==============================================================
+    // 5. STREAMED REPLIES + BROWSER AUDIO PLAYBACK
+    // ==============================================================
+    // Appu's voice plays in this window (not through afplay) so Chrome's echo
+    // cancellation knows what Appu is saying and the mic can stay open for barge-in.
+    let playbackCtx = null;
+    let playbackDest = null;
+    let playbackCursor = 0;
+    const activeSources = new Set();
+    const playbackEl = new Audio();
+    playbackEl.autoplay = true;
+
+    function ensurePlayback() {
+      if (!playbackCtx) {
+        playbackCtx = new (window.AudioContext || window.webkitAudioContext)();
+        playbackDest = playbackCtx.createMediaStreamDestination();
+        playbackEl.srcObject = playbackDest.stream;
       }
-      // Hold emotion in idle for 3s before returning to happy baseline
-      window.face.set_state(targetEmotion, 'idle');
-      setTimeout(() => {
-        if (currentActivity === 'idle') {
-          window.face.set_state('happy', 'idle');
-        }
-      }, 3500);
+      if (playbackCtx.state === 'suspended') playbackCtx.resume();
+      playbackEl.play().catch(() => {});
+      return playbackCtx;
     }
 
-    async function sendUserMessage(forcedText) {
+    function base64ToArrayBuffer(b64) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes.buffer;
+    }
+
+    // Decoding is async; chain it so chunks always play in arrival order.
+    let decodeChain = Promise.resolve();
+    function enqueueAudio(arrayBuffer, turnId) {
+      const ctx = ensurePlayback();
+      decodeChain = decodeChain
+        .then(() => ctx.decodeAudioData(arrayBuffer))
+        .then((buffer) => {
+          if (turnId !== playbackTurnId) return;  // turn was interrupted meanwhile
+          const src = ctx.createBufferSource();
+          src.buffer = buffer;
+          src.connect(playbackDest);
+          const startAt = Math.max(ctx.currentTime + 0.02, playbackCursor);
+          src.start(startAt);
+          playbackCursor = startAt + buffer.duration;
+          activeSources.add(src);
+          if (firstAudioPending && pendingTiming.speechEndAt) {
+            firstAudioPending = false;
+            const ms = Date.now() + (startAt - ctx.currentTime) * 1000 - pendingTiming.speechEndAt;
+            console.info(`[latency] end of speech -> first audio: ${Math.round(ms)} ms`);
+          }
+          src.onended = () => {
+            activeSources.delete(src);
+            if (activeSources.size === 0) onPlaybackDrained();
+          };
+        })
+        .catch((err) => console.warn('Audio decode error', err));
+    }
+
+    let playbackTurnId = 0;
+    function stopPlayback() {
+      playbackTurnId++;
+      activeSources.forEach((src) => { try { src.stop(); } catch (e) {} });
+      activeSources.clear();
+      playbackCursor = 0;
+    }
+
+    function isPlaying() {
+      return activeSources.size > 0;
+    }
+
+    // Current turn (one request/response).
+    let currentTurn = null;
+    let firstAudioPending = false;
+    let pendingTiming = {};
+
+    function finishTurnUi(emotion) {
+      isBusy = false;
+      inputField.disabled = false;
+      inputField.placeholder = 'Ask Appu anything or schedule a reminder...';
+      btnSend.querySelector('span:last-child').textContent = 'SEND';
+      if (!conversationMode) inputField.focus();
+      window.face.set_state(emotion || 'happy', 'idle');
+    }
+
+    function onPlaybackDrained() {
+      if (currentTurn && !currentTurn.serverDone) return;  // more audio may still arrive
+      if (currentTurn) {
+        const emotion = currentTurn.emotion;
+        currentTurn = null;
+        finishTurnUi(emotion);
+      }
+      if (conversationMode) startFollowUpWindow();
+    }
+
+    async function stopTurn() {
+      const turn = currentTurn;
+      const wasPlaying = isPlaying();
+      stopPlayback();
+      if (!turn) return;
+      currentTurn = null;
+      turn.interrupted = true;
+      turn.controller.abort();
+      fetch('/api/chat/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ during_playback: wasPlaying && turn.serverDone }),
+      }).catch(() => {});
+      finishTurnUi('neutral');
+    }
+
+    function handleTurnEvent(turn, ev) {
+      switch (ev.type) {
+        case 'state':
+          if (ev.state === 'thinking') window.face.set_state('curious', 'thinking');
+          else if (ev.state === 'executing') window.face.set_state('serious', 'executing');
+          else if (ev.state === 'speaking') window.face.set_state('happy', 'speaking');
+          break;
+        case 'text_delta':
+          turn.text += ev.text;
+          turn.el.textContent = turn.text;
+          chatContainer.scrollTop = chatContainer.scrollHeight;
+          break;
+        case 'text_reset':
+          turn.text = '';
+          turn.el.innerHTML = '<span class="thinking-dots">Working<span>.</span><span>.</span><span>.</span></span>';
+          break;
+        case 'audio_chunk':
+          enqueueAudio(base64ToArrayBuffer(ev.audio), turn.playbackId);
+          break;
+        case 'tool_event':
+          if (!ev.ok) window.face.set_state('empathetic', 'error');
+          break;
+        case 'done':
+          turn.serverDone = true;
+          turn.emotion = ev.emotion || 'happy';
+          if (!turn.text && ev.answer) turn.el.textContent = ev.answer;
+          if (ev.activity === 'success') window.face.set_state('confident', 'success');
+          break;
+        case 'error':
+          turn.serverDone = true;
+          turn.emotion = 'empathetic';
+          turn.el.textContent = `Notice: ${ev.message}`;
+          window.face.set_state('empathetic', 'error');
+          break;
+      }
+    }
+
+    async function sendUserMessage(forcedText, timing) {
       lastActivityTime = Date.now();
-      if (isBusy) return;
       const text = (forcedText !== undefined ? forcedText : inputField.value).trim();
       if (!text) return;
+      if (currentTurn || isPlaying()) await stopTurn();
 
+      cancelFollowUpWindow();
       isBusy = true;
       inputField.value = '';
-      inputField.disabled = true;
-      inputField.placeholder = 'Appu is responding...';
+      inputField.placeholder = 'Appu is responding... (Esc to stop)';
+      btnSend.querySelector('span:last-child').textContent = 'STOP';
       appendUserMessage(text);
-
-      // Transition: Thinking activity with happy/focused core
       window.face.set_state('curious', 'thinking');
 
-      const activeMsgEl = appendAssistantPlaceholder();
+      stopPlayback();
+      ensurePlayback();
+      const turn = {
+        controller: new AbortController(),
+        el: appendAssistantPlaceholder(),
+        text: '',
+        serverDone: false,
+        emotion: 'happy',
+        playbackId: playbackTurnId,
+      };
+      currentTurn = turn;
+      pendingTiming = timing || {};
+      firstAudioPending = true;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const requestTiming = {};
+      if (pendingTiming.sttSec !== undefined) requestTiming.stt_sec = pendingTiming.sttSec;
+      if (pendingTiming.speechEndAt) requestTiming.speech_end_to_send_ms = Date.now() - pendingTiming.speechEndAt;
 
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text }),
-          signal: controller.signal
+          body: JSON.stringify({ message: text, timing: requestTiming }),
+          signal: turn.controller.signal,
         });
-        clearTimeout(timeoutId);
-
-        const data = await res.json();
-        if (data.error) {
-          window.face.set_state('empathetic', 'error');
-          activeMsgEl.innerText = `Notice: ${data.error}`;
-          setTimeout(() => {
-            window.face.set_state('happy', 'idle');
-          }, 3500);
-        } else {
-          // If tool was executed, transition through 'executing' -> 'success'
-          if (data.executed_tool) {
-            window.face.set_state('serious', 'executing');
-            await new Promise(r => setTimeout(r, 800));
-            window.face.set_state('confident', 'success');
-            await new Promise(r => setTimeout(r, 600));
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (line) handleTurnEvent(turn, JSON.parse(line));
           }
-          const emotion = data.emotion || 'happy';
-          await typeReply(activeMsgEl, data.answer || "No response received.", emotion);
         }
       } catch (err) {
-        clearTimeout(timeoutId);
+        if (turn.interrupted) return;
+        turn.serverDone = true;
+        turn.emotion = 'empathetic';
+        turn.el.textContent = 'Error: Could not reach Appu. Is it still running?';
         window.face.set_state('empathetic', 'error');
-        if (err.name === 'AbortError') {
-          activeMsgEl.innerText = "Notice: Request took too long to complete. Please try again.";
-        } else {
-          activeMsgEl.innerText = "Error: Could not reach APPU backend.";
-        }
-        setTimeout(() => {
-          window.face.set_state('happy', 'idle');
-        }, 3500);
-      } finally {
-        isBusy = false;
-        inputField.disabled = false;
-        inputField.placeholder = 'Ask Appu anything or schedule a reminder...';
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-        inputField.focus();
       }
+      if (turn.interrupted || currentTurn !== turn) return;
+      turn.serverDone = true;
+      if (!isPlaying()) onPlaybackDrained();
     }
 
     inputField.addEventListener('keydown', (e) => {
@@ -1335,62 +1464,108 @@ I can also open your registered Appu project in Visual Studio Code.</div>
     });
 
     const btnSend = document.getElementById('btn-send');
-    if (btnSend) {
-      btnSend.addEventListener('click', () => {
-        sendUserMessage();
-      });
+    btnSend.addEventListener('click', () => {
+      if (currentTurn || isPlaying()) stopTurn();
+      else sendUserMessage();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        stopTurn();
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        newConversation();
+      }
+    });
+
+    async function newConversation() {
+      await stopTurn();
+      fetch('/api/conversation/new', { method: 'POST' }).catch(() => {});
+      chatContainer.innerHTML = '';
+      window.face.set_state('happy', 'idle');
     }
+    document.getElementById('btn-new').addEventListener('click', newConversation);
 
     // ==============================================================
-    // 4. HIGH-QUALITY LOCAL VOICE I/O & VAD SYSTEM
+    // 6. MIC CAPTURE, TURN DETECTION AND CONVERSATION MODE
     // ==============================================================
     const btnPtt = document.getElementById('btn-ptt');
     const pttLabel = document.getElementById('ptt-label');
-    const btnVad = document.getElementById('btn-vad');
-    const vadLabel = document.getElementById('vad-label');
+    const btnTalk = document.getElementById('btn-vad');
+    const talkLabel = document.getElementById('vad-label');
     const btnVoice = document.getElementById('btn-voice');
     const voiceIcon = document.getElementById('voice-icon');
     const voiceLabel = document.getElementById('voice-label');
     const speechPreview = document.getElementById('speech-preview');
     const speechPreviewText = document.getElementById('speech-preview-text');
 
+    const SAMPLE_RATE = 16000;
+    const SPEECH_RMS = 0.025;
+    const SPEECH_START_MS = 120;        // sustained voice before we call it speech (ignores clicks)
+    const BARGE_IN_START_MS = 200;      // stricter while Appu is talking, in case echo leaks through
+    const END_OF_TURN_SILENCE_MS = 900; // fallback when Smart Turn models are not installed
+    const TURN_CHECK_AFTER_MS = 200;    // pause length before asking Smart Turn
+    const MAX_PAUSE_MS = 2000;          // mid-thought pauses longer than this end the turn anyway
+    const MIN_UTTERANCE_MS = 300;
+    const PRE_ROLL_MS = 300;            // keep audio from just before speech was detected
+    const FOLLOW_UP_WINDOW_MS = 8000;
+    const INITIAL_LISTEN_MS = 15000;
+
     let audioContext = null;
     let micStream = null;
-    let analyserNode = null;
-    let scriptProcessor = null;
-    let audioSamples = [];
-    let isRecording = false;
-    let vadEnabled = false;
-    let hasSpokenInSession = false;
-    let userSpeaking = false;
-    let lastSpeechTimestamp = 0;
-    let vadCheckInterval = null;
+    let workletNode = null;
 
-    // Fast in-memory 16kHz mono 16-bit PCM WAV encoder (Zero dependencies)
-    function encodeWAV(samples, sampleRate = 16000) {
-      const buffer = new ArrayBuffer(44 + samples.length * 2);
-      const view = new DataView(buffer);
+    let conversationMode = false;
+    let pttActive = false;
+    let capturing = false;       // collecting an utterance
+    let utterance = [];
+    let preRoll = [];
+    let voicedMs = 0;
+    let lastVoiceAt = 0;
+    let utteranceStartAt = 0;
+    let listenTimer = null;
+    let turnDetection = false;   // server has Silero VAD + Smart Turn
+    let pauseChecked = false;
+    let turnCheckInFlight = false;
 
-      function writeString(offset, str) {
-        for (let i = 0; i < str.length; i++) {
-          view.setUint8(offset + i, str.charCodeAt(i));
+    const WORKLET_SRC = `
+      class MicFrames extends AudioWorkletProcessor {
+        constructor() { super(); this.buf = new Float32Array(320); this.n = 0; }
+        process(inputs) {
+          const ch = inputs[0] && inputs[0][0];
+          if (ch) {
+            for (let i = 0; i < ch.length; i++) {
+              this.buf[this.n++] = ch[i];
+              if (this.n === this.buf.length) { this.port.postMessage(this.buf.slice()); this.n = 0; }
+            }
+          }
+          return true;
         }
       }
+      registerProcessor('mic-frames', MicFrames);
+    `;
 
+    function encodeWAV(samples, sampleRate = SAMPLE_RATE) {
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+      const writeString = (offset, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      };
       writeString(0, 'RIFF');
       view.setUint32(4, 36 + samples.length * 2, true);
       writeString(8, 'WAVE');
       writeString(12, 'fmt ');
       view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true); // PCM
-      view.setUint16(22, 1, true); // Mono
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
       view.setUint32(24, sampleRate, true);
       view.setUint32(28, sampleRate * 2, true);
       view.setUint16(32, 2, true);
       view.setUint16(34, 16, true);
       writeString(36, 'data');
       view.setUint32(40, samples.length * 2, true);
-
       let offset = 44;
       for (let i = 0; i < samples.length; i++, offset += 2) {
         const s = Math.max(-1, Math.min(1, samples[i]));
@@ -1403,196 +1578,226 @@ I can also open your registered Appu project in Visual Studio Code.</div>
       if (audioContext && micStream) return true;
       try {
         micStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            sampleRate: 16000,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          }
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
-        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+        const moduleUrl = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }));
+        await audioContext.audioWorklet.addModule(moduleUrl);
         const source = audioContext.createMediaStreamSource(micStream);
-        analyserNode = audioContext.createAnalyser();
-        analyserNode.fftSize = 512;
-
-        scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
-        source.connect(analyserNode);
-        analyserNode.connect(scriptProcessor);
-
-        // Zero-gain mute node: Keeps onaudioprocess firing in Chrome while ensuring ZERO microphone audio leaks to Mac speakers (eliminates the engine-like drone/echo sound)
-        const muteNode = audioContext.createGain();
-        muteNode.gain.value = 0.0;
-        scriptProcessor.connect(muteNode);
-        muteNode.connect(audioContext.destination);
-
-        scriptProcessor.onaudioprocess = (e) => {
-          // Silence output buffer completely
-          if (e.outputBuffer) {
-            e.outputBuffer.getChannelData(0).fill(0);
-          }
-
-          if (!isRecording) return;
-          const inputData = e.inputBuffer.getChannelData(0);
-
-          // Calculate RMS volume for Voice Activity Detection
-          let sum = 0;
-          for (let i = 0; i < inputData.length; i++) {
-            sum += inputData[i] * inputData[i];
-            audioSamples.push(inputData[i]);
-          }
-          const rms = Math.sqrt(sum / inputData.length);
-
-          // Barge-in: interrupt Appu once when the user starts speaking, not on every frame
-          if (rms > 0.025) {
-            if (!userSpeaking) {
-              userSpeaking = true;
-              fetch('/api/voice/stop', { method: 'POST' }).catch(() => {});
-            }
-            hasSpokenInSession = true;
-            lastSpeechTimestamp = Date.now();
-          } else if (userSpeaking && Date.now() - lastSpeechTimestamp > 400) {
-            userSpeaking = false;
-          }
-        };
+        workletNode = new AudioWorkletNode(audioContext, 'mic-frames');
+        workletNode.port.onmessage = (e) => onMicFrame(e.data);
+        source.connect(workletNode);
         return true;
       } catch (err) {
-        console.error("Audio capture init error:", err);
+        console.error('Audio capture init error:', err);
         showAudioError(err);
         return false;
       }
     }
 
-    function showAudioError(err) {
-      let msg = "Microphone error.";
-      if (err.name === 'NotAllowedError') {
-        msg = "Microphone access denied. Grant permission in macOS System Settings > Privacy > Microphone.";
-      } else if (err.name === 'NotFoundError') {
-        msg = "No microphone hardware detected on this Mac.";
-      }
-      speechPreview.style.display = 'flex';
-      speechPreviewText.textContent = `⚠️ ${msg}`;
-      window.face.set_state('empathetic', 'error');
-      setTimeout(() => {
-        speechPreview.style.display = 'none';
-        if (currentActivity === 'error') {
-          window.face.set_state('happy', 'idle');
+    function micListening() {
+      return conversationMode || pttActive;
+    }
+
+    function onMicFrame(frame) {
+      if (!micListening()) return;
+      const frameMs = (frame.length / SAMPLE_RATE) * 1000;
+      let sum = 0;
+      for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];
+      const voiced = Math.sqrt(sum / frame.length) > SPEECH_RMS;
+      const now = Date.now();
+
+      if (capturing) {
+        utterance.push(frame);
+        if (voiced) {
+          lastVoiceAt = now;
+          pauseChecked = false;
         }
-      }, 4500);
-    }
-
-    async function startRecording() {
-      if (isRecording) return;
-      const ok = await initAudioCapture();
-      if (!ok) return;
-
-      audioSamples = [];
-      hasSpokenInSession = false;
-      userSpeaking = false;
-      lastSpeechTimestamp = Date.now();
-      isRecording = true;
-
-      btnPtt.classList.add('recording');
-      pttLabel.textContent = 'REC';
-      speechPreview.style.display = 'flex';
-      speechPreviewText.textContent = '🎙️ Listening... (VoiceStudio Audio)';
-      window.face.set_state('curious', 'listening');
-
-      // VAD silence watcher (detects natural pause > 600ms after speech)
-      if (vadEnabled) {
-        if (vadCheckInterval) clearInterval(vadCheckInterval);
-        vadCheckInterval = setInterval(() => {
-          if (isRecording && hasSpokenInSession) {
-            const silenceDuration = Date.now() - lastSpeechTimestamp;
-            if (silenceDuration > 600 && audioSamples.length > 6400) {
-              stopRecordingAndTranscribe();
-            }
-          }
-        }, 100);
-      }
-    }
-
-    async function stopRecordingAndTranscribe() {
-      if (!isRecording) return;
-      isRecording = false;
-      btnPtt.classList.remove('recording');
-      pttLabel.textContent = 'PTT';
-      if (vadCheckInterval) clearInterval(vadCheckInterval);
-
-      if (audioSamples.length < 3200) { // < 0.2s of audio
-        speechPreviewText.textContent = '⚠️ Audio too short. Hold PTT while speaking.';
-        setTimeout(() => { speechPreview.style.display = 'none'; }, 2000);
-        window.face.set_state('happy', 'idle');
+        if (pttActive) return;  // PTT ends when the button is released
+        const silenceMs = now - lastVoiceAt;
+        if (!turnDetection) {
+          if (silenceMs > END_OF_TURN_SILENCE_MS) finishUtterance();
+        } else if (silenceMs > MAX_PAUSE_MS) {
+          finishUtterance();
+        } else if (silenceMs > TURN_CHECK_AFTER_MS && !pauseChecked && !turnCheckInFlight) {
+          pauseChecked = true;
+          checkTurn(lastVoiceAt);
+        }
         return;
       }
 
-      speechPreviewText.textContent = '⚡ Transcribing with VoiceStudio (faster-whisper)...';
+      preRoll.push(frame);
+      while (preRoll.length * frameMs > PRE_ROLL_MS) preRoll.shift();
+
+      voicedMs = voiced ? voicedMs + frameMs : 0;
+      const appuTalking = isPlaying() || (currentTurn && !currentTurn.serverDone);
+      const needed = appuTalking ? BARGE_IN_START_MS : SPEECH_START_MS;
+      if (pttActive || voicedMs >= needed) {
+        if (appuTalking) stopTurn();  // barge-in: Appu stops as soon as you talk over it
+        cancelFollowUpWindow();
+        capturing = true;
+        utterance = preRoll.slice();
+        preRoll = [];
+        utteranceStartAt = now;
+        lastVoiceAt = now;
+        pauseChecked = false;
+        showPreview('Listening...');
+        window.face.set_state('curious', 'listening');
+      }
+    }
+
+    function joinFrames(frames, maxSamples) {
+      let total = frames.reduce((n, f) => n + f.length, 0);
+      let start = 0;
+      while (maxSamples && total - frames[start].length >= maxSamples) total -= frames[start++].length;
+      const out = new Float32Array(total);
+      let off = 0;
+      for (let i = start; i < frames.length; i++) { out.set(frames[i], off); off += frames[i].length; }
+      return out;
+    }
+
+    // Ask Smart Turn whether this pause ends the user's turn or they're mid-thought.
+    async function checkTurn(voiceAtCheck) {
+      turnCheckInFlight = true;
+      try {
+        const res = await fetch('/api/voice/turn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'audio/wav' },
+          body: encodeWAV(joinFrames(utterance, SAMPLE_RATE * 8)),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const verdict = await res.json();
+        // Ignore the verdict if the user started talking again meanwhile.
+        if (!capturing || lastVoiceAt !== voiceAtCheck) return;
+        if (!verdict.speech) {
+          capturing = false;  // noise, not speech
+          utterance = [];
+          if (conversationMode) startFollowUpWindow();
+          else hidePreview();
+        } else if (verdict.complete) {
+          finishUtterance();
+        }
+      } catch (err) {
+        turnDetection = false;  // fall back to the fixed silence timeout
+      } finally {
+        turnCheckInFlight = false;
+      }
+    }
+
+    async function finishUtterance() {
+      if (!capturing) return;
+      capturing = false;
+      voicedMs = 0;
+      const speechEndAt = Date.now();
+      const samples = joinFrames(utterance);
+      utterance = [];
+      if ((samples.length / SAMPLE_RATE) * 1000 < MIN_UTTERANCE_MS || speechEndAt - utteranceStartAt < MIN_UTTERANCE_MS) {
+        hidePreview();
+        if (conversationMode) startFollowUpWindow();
+        return;
+      }
+
+      showPreview('Transcribing...');
       window.face.set_state('curious', 'thinking');
-
-      const wavBlob = encodeWAV(audioSamples, 16000);
-
       try {
         const res = await fetch('/api/voice/transcribe', {
           method: 'POST',
           headers: { 'Content-Type': 'audio/wav' },
-          body: wavBlob,
+          body: encodeWAV(samples),
         });
         const data = await res.json();
-
+        hidePreview();
         if (data.success && data.text) {
-          inputField.value = data.text;
-          speechPreviewText.textContent = `✅ VoiceStudio (${data.latency_sec}s): "${data.text}" — Press Enter or click SEND`;
-          setTimeout(() => { speechPreview.style.display = 'none'; }, 4500);
+          sendUserMessage(data.text, { speechEndAt, sttSec: data.latency_sec });
         } else {
-          speechPreviewText.textContent = data.error ? `⚠️ ${data.error}` : 'No speech recognized.';
-          setTimeout(() => { speechPreview.style.display = 'none'; }, 3000);
+          showPreview(data.error ? data.error : "I didn't catch that.", 2500);
+          window.face.set_state('happy', 'idle');
+          if (conversationMode) startFollowUpWindow();
         }
       } catch (err) {
-        console.error('Transcription error:', err);
-        speechPreviewText.textContent = '⚠️ Could not reach local transcription endpoint.';
-        setTimeout(() => { speechPreview.style.display = 'none'; }, 3000);
-      } finally {
-        window.face.set_state('happy', 'idle');
-        inputField.focus();
+        showPreview('Could not reach local transcription.', 3000);
+        window.face.set_state('empathetic', 'error');
       }
     }
 
-    function togglePtt() {
-      if (isRecording) {
-        stopRecordingAndTranscribe();
+    function startFollowUpWindow(ms = FOLLOW_UP_WINDOW_MS) {
+      cancelFollowUpWindow();
+      if (!conversationMode) return;
+      window.face.set_state('curious', 'listening');
+      showPreview('Listening...');
+      listenTimer = setTimeout(() => {
+        if (!capturing && !currentTurn && !isPlaying()) setConversationMode(false);
+      }, ms);
+    }
+
+    function cancelFollowUpWindow() {
+      if (listenTimer) clearTimeout(listenTimer);
+      listenTimer = null;
+    }
+
+    async function setConversationMode(on) {
+      if (on && !(await initAudioCapture())) return;
+      conversationMode = on;
+      btnTalk.classList.toggle('active', on);
+      talkLabel.textContent = on ? 'TALK: ON' : 'TALK: OFF';
+      if (on) {
+        ensurePlayback();
+        startFollowUpWindow(INITIAL_LISTEN_MS);
       } else {
-        startRecording();
+        cancelFollowUpWindow();
+        if (capturing && !pttActive) { capturing = false; utterance = []; }
+        hidePreview();
+        if (!currentTurn) window.face.set_state('happy', 'idle');
       }
+    }
+
+    async function togglePtt() {
+      if (pttActive) {
+        pttActive = false;
+        btnPtt.classList.remove('recording');
+        pttLabel.textContent = 'PTT';
+        finishUtterance();
+        return;
+      }
+      if (!(await initAudioCapture())) return;
+      ensurePlayback();
+      pttActive = true;
+      btnPtt.classList.add('recording');
+      pttLabel.textContent = 'REC';
+    }
+
+    function showPreview(text, hideAfterMs) {
+      speechPreview.style.display = 'flex';
+      speechPreviewText.textContent = text;
+      if (hideAfterMs) setTimeout(hidePreview, hideAfterMs);
+    }
+
+    function hidePreview() {
+      speechPreview.style.display = 'none';
+    }
+
+    function showAudioError(err) {
+      let msg = 'Microphone error.';
+      if (err.name === 'NotAllowedError') {
+        msg = 'Microphone access denied. Allow it in System Settings > Privacy & Security > Microphone.';
+      } else if (err.name === 'NotFoundError') {
+        msg = 'No microphone found.';
+      }
+      showPreview(msg, 4500);
+      window.face.set_state('empathetic', 'error');
     }
 
     btnPtt.addEventListener('click', togglePtt);
+    btnTalk.addEventListener('click', () => setConversationMode(!conversationMode));
 
-    // Ctrl+Space keyboard shortcut for Push-to-Talk
+    // Ctrl+Space toggles hands-free conversation mode
     window.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.code === 'Space') {
         e.preventDefault();
-        togglePtt();
+        setConversationMode(!conversationMode);
       }
     });
 
-    // Voice Activity Detection (VAD) toggle
-    btnVad.addEventListener('click', () => {
-      vadEnabled = !vadEnabled;
-      if (vadEnabled) {
-        btnVad.classList.add('active');
-        vadLabel.textContent = 'VAD: ON';
-        speechPreview.style.display = 'flex';
-        speechPreviewText.textContent = '⚡ VAD Active: Speak naturally; pauses trigger local transcription.';
-        setTimeout(() => { speechPreview.style.display = 'none'; }, 3500);
-        startRecording();
-      } else {
-        btnVad.classList.remove('active');
-        vadLabel.textContent = 'VAD: OFF';
-        if (isRecording) {
-          stopRecordingAndTranscribe();
-        }
-      }
-    });
 
     // Voice output (TTS) toggle & status
     async function initVoiceStatus() {
@@ -1600,6 +1805,7 @@ I can also open your registered Appu project in Visual Studio Code.</div>
         const res = await fetch('/api/voice/status');
         const data = await res.json();
         updateVoiceButton(data.enabled);
+        turnDetection = !!data.turn_detection;
         const voiceSelect = document.getElementById('voice-select');
         if (voiceSelect && data.active_voice) {
           voiceSelect.value = data.active_voice;
@@ -1664,6 +1870,7 @@ I can also open your registered Appu project in Visual Studio Code.</div>
               `;
               chatContainer.appendChild(banner);
               chatContainer.scrollTop = chatContainer.scrollHeight;
+              if (item.speak && !currentTurn) speakAlert(item.speak);
 
               window.face.set_state('excited', 'speaking');
               setTimeout(() => {
@@ -1677,6 +1884,17 @@ I can also open your registered Appu project in Visual Studio Code.</div>
         .catch(() => {});
     }
     setInterval(pollDueNotifications, 3000);
+
+    async function speakAlert(text) {
+      try {
+        const res = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        if (res.ok) enqueueAudio(await res.arrayBuffer(), playbackTurnId);
+      } catch (e) {}
+    }
 
     // Keyboard shortcut ⌘+Q
     window.addEventListener('keydown', (e) => {

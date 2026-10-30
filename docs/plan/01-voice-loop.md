@@ -59,46 +59,55 @@ answers, it keeps listening briefly without you pressing anything.
 
 ## Checklist
 
+Status 30 Oct 2026. Transport note: replies stream as newline-delimited JSON on
+`POST /api/chat` (same event names as above), and turn checks are a small
+`POST /api/voice/turn` per pause, instead of one WebSocket. Swapping the
+transport to a WebSocket later does not change the event format.
+
 ### Step 1 — Conversation history (small, do first)
-- [ ] Keep a per-session `messages` list on the server (system + last N turns).
-- [ ] Trim by token budget (e.g. keep last ~12 turns, summarise older ones later in Phase 2).
-- [ ] Add a "new conversation" action in the UI.
+- [x] Keep a per-session `messages` list on the server (system + last N turns). (`conversation.py`)
+- [x] Trim by token budget (last 12 turns, max ~12k characters; summaries come in Phase 2).
+- [x] Add a "new conversation" action in the UI (NEW button, Cmd+K).
 
 ### Step 2 — Stream text to the UI
-- [ ] Send `text_delta` events as tokens arrive; drop `typeReply` fake typing.
-- [ ] Remove the 60 s client-side abort; rely on server-side timeout + a Stop button.
+- [x] Send `text_delta` events as tokens arrive; drop `typeReply` fake typing.
+- [x] Remove the 60 s client-side abort; rely on server-side timeout + a Stop button (Esc).
 
 ### Step 3 — Move audio playback into the browser
-- [ ] `StreamingVoiceSession` produces PCM/WAV bytes instead of temp files.
-- [ ] Send them as `audio_chunk` events; play with Web Audio in order.
-- [ ] Remove `afplay` and temp files from the streaming path. Keep `say` only
+- [x] `StreamingVoiceSession` produces WAV bytes instead of temp files.
+- [x] Send them as `audio_chunk` events; play with Web Audio in order (routed through an `<audio>` element).
+- [x] Remove `afplay` and temp files from the streaming path. Keep `say` only
       as a last-resort fallback for reminder alerts when no window is open.
-- [ ] Merge `VOICE.speak` into the same session code (reminders call the same path).
+- [x] Reminder alerts use the same Kokoro path (`/api/tts`, played in the window) when a window is open.
 
 ### Step 4 — Real turn detection
-- [ ] Replace `ScriptProcessorNode` with an `AudioWorklet` that posts 20–30 ms frames.
-- [ ] Run Silero VAD v5 on the server (ONNX, tiny, CPU) to detect speech start/end.
-- [ ] Add Smart Turn v3 (Pipecat, open source) to decide whether a pause is the
-      end of the turn or just thinking. Fall back to ~900 ms silence if not installed.
-- [ ] On speech start while Appu is speaking: stop TTS immediately (barge-in),
+- [x] Replace `ScriptProcessorNode` with an `AudioWorklet` that posts 20 ms frames.
+- [x] Silero VAD v5 on the server (`turn.py`) rejects pauses that contain no speech.
+      Speech *start* is still detected in the browser from energy (instant barge-in).
+- [x] Smart Turn v3.2 decides whether a pause ends the turn (checked after 200 ms of
+      silence, max 2 s pause). Falls back to 900 ms silence if the models are missing.
+- [x] On speech start while Appu is speaking: stop TTS immediately (barge-in),
       cancel the LLM stream, keep the partial answer in history marked as interrupted.
 
 ### Step 5 — Hands-free and wake options
-- [ ] Global hotkey (already Ctrl+Space) toggles "conversation mode".
-- [ ] After each answer, stay in `listening` for a follow-up window.
+- [x] Global hotkey (Ctrl+Space, in-window) toggles "conversation mode" (TALK button).
+- [x] After each answer, stay in `listening` for an 8 s follow-up window.
 - [ ] Optional later: "Hey Appu" wake word (see `docs/wake_word_design.md`).
       openWakeWord can train a custom phrase; keep it off by default.
 
 ### Step 6 — Make it sound human
-- [ ] Spoken replies short by default (1–2 sentences); full detail goes to the screen.
-      Give the model two outputs: `say` (short) and `show` (full, Markdown).
-- [ ] Short acknowledgement while a tool runs ("One sec, checking your reminders").
-- [ ] Do not read code, URLs or lists aloud; say "I've put the details on screen".
-- [ ] Keep Kokoro at speed ~1.05; first phrase as small as 3–4 words to cut latency.
+- [x] Spoken replies short by default; only the first paragraph is spoken, details after
+      a blank line / list / code are shown, not read (`SpokenPartFilter`).
+- [x] Short acknowledgement while a tool runs ("Checking your reminders.").
+- [x] Do not read code, URLs or lists aloud; say "I've put the details on screen".
+- [x] Kokoro speed 1.05; first phrase from 3 words, breaks early at a comma.
+      Also fixed a 0.5 s per-phrase espeak reload (Kokoro phrase: ~0.9 s -> ~0.35 s).
 
 ### Step 7 — Measure latency
-- [ ] Log per turn: end of speech → transcript → first token → first audio.
+- [x] Log per turn (JSON line): STT time, end of speech -> request, first token, first audio.
 - [ ] Target on M4: under ~1.2 s from end of your speech to Appu's first word.
+      Measured server-side: first audio 1.1–1.8 s after the request (qwen3.5:4b, warm).
+      Needs a real-mic measurement; end of speech -> transcription start is ~0.15 s with Smart Turn.
 
 ## Libraries and references
 

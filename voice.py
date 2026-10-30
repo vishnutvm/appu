@@ -1,19 +1,20 @@
 """
 APPU Voice Engine.
-Kokoro ONNX neural TTS with sentence-level streaming and macOS afplay playback,
-falling back to macOS /usr/bin/say when Kokoro is unavailable.
+Kokoro ONNX neural TTS streamed phrase-by-phrase as WAV bytes to the browser,
+which plays them (so Chrome's echo cancellation can hear Appu and allow barge-in).
+macOS /usr/bin/say is kept only for alerts when no window is open.
 """
 
+import io
 import os
 from pathlib import Path
 import queue
 import re
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 try:
     from kokoro_onnx import Kokoro
@@ -25,6 +26,7 @@ except ImportError:
 
 KOKORO_MODEL_PATH = Path.home() / "Developer" / "jarvis" / "models" / "kokoro" / "kokoro-v1.0.onnx"
 KOKORO_VOICES_PATH = Path.home() / "Developer" / "jarvis" / "models" / "kokoro" / "voices-v1.0.bin"
+KOKORO_SPEED = 1.05
 
 # Voices offered in the UI; selection requests are validated against this list.
 KOKORO_VOICES = {
@@ -35,6 +37,8 @@ KOKORO_VOICES = {
     "bf_emma": "Emma (British female)",
 }
 
+DETAILS_ON_SCREEN = "I've put the details on screen."
+
 
 def clean_for_speech(text: str) -> str:
     """
@@ -43,7 +47,7 @@ def clean_for_speech(text: str) -> str:
     - Preserves clean English sentences suitable for conversational speech.
     """
     # 1. Replace code blocks with brief natural announcement
-    text = re.sub(r"```[\s\S]*?```", "Here is the code in your timeline.", text)
+    text = re.sub(r"```[\s\S]*?```", "I've put the code on screen.", text)
 
     # 2. Clean markdown links [Title](url) -> Title
     text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
@@ -79,21 +83,72 @@ def split_into_sentences(text: str) -> List[str]:
     return sentences or [clean]
 
 
+class SpokenPartFilter:
+    """
+    Passes through only the spoken part of a streamed reply.
+
+    The reply's opening paragraph is spoken. Anything after a blank line, a list,
+    a code fence or a table is "show" content: it is displayed but not read aloud.
+    """
+    _SHOW_START = re.compile(r"(?m)(\n\s*\n|^\s*(?:[-+*•]\s|\d+[.)]\s|```|\|))")
+
+    def __init__(self):
+        self._seen = ""
+        self._emitted = 0
+        self.truncated = False
+
+    def feed(self, token: str) -> str:
+        if self.truncated:
+            return ""
+        self._seen += token
+        match = self._SHOW_START.search(self._seen)
+        if match and self._seen[:match.start()].strip():
+            self.truncated = True
+            end = match.start()
+        elif match:
+            # Reply opens with show content (e.g. a list). Nothing to speak.
+            self.truncated = True
+            end = 0
+        else:
+            # Hold back a few characters: a list/code marker may still be arriving.
+            end = max(self._emitted, len(self._seen) - 4)
+        out = self._seen[self._emitted:end] if end > self._emitted else ""
+        self._emitted = max(self._emitted, end)
+        return out
+
+    def flush(self) -> str:
+        if self.truncated:
+            return ""
+        out = self._seen[self._emitted:]
+        self._emitted = len(self._seen)
+        return out
+
+    def reset(self) -> None:
+        self.__init__()
+
+
 class StreamingPhraseBuffer:
     """
     Accumulates incoming text tokens and extracts natural speakable sentences/phrases:
     - Sentence terminators (. ! ? \n)
     - Preserves commas and internal punctuation within sentences for natural human intonation
-    - First sentence emitted as soon as a complete sentence or natural opening thought (>= 4 words) is ready
+    - First phrase emitted as soon as a complete sentence or natural opening thought (>= 3 words) is ready
     - Subsequent phrases bundle complete sentences (8-18 words) so playback runs continuously without queue starvation
     - Fallback word limit (16-20 words) on whitespace only for unpunctuated runs
     """
-    def __init__(self, min_words_first: int = 4, min_words_subsequent: int = 8, max_words_chunk: int = 18):
+    def __init__(
+        self,
+        min_words_first: int = 3,
+        min_words_subsequent: int = 8,
+        max_words_chunk: int = 18,
+        max_words_first: int = 10,
+    ):
         self.buffer = ""
         self.is_first = True
         self.min_words_first = min_words_first
         self.min_words_subsequent = min_words_subsequent
         self.max_words_chunk = max_words_chunk
+        self.max_words_first = max_words_first
 
     def add_token(self, token: str) -> List[str]:
         self.buffer += token
@@ -136,8 +191,22 @@ class StreamingPhraseBuffer:
             if found:
                 continue
 
-            # Word-count fallback: if unpunctuated run exceeds max_words_chunk, split at comma or whitespace
-            if len(words) >= self.max_words_chunk:
+            # The first phrase sets time-to-first-audio, so it may break early at a comma.
+            if self.is_first:
+                first_cut = next(
+                    (sm.end() for sm in re.finditer(r"([,;:\—]+)(\s+)", self.buffer)
+                     if len(self.buffer[:sm.start()].split()) > min_w),
+                    None,
+                )
+                if first_cut:
+                    ready.append(self.buffer[:first_cut].strip())
+                    self.buffer = self.buffer[first_cut:]
+                    self.is_first = False
+                    continue
+
+            # Word-count fallback: if unpunctuated run exceeds the limit, split at comma or whitespace
+            limit = self.max_words_first if self.is_first else self.max_words_chunk
+            if len(words) >= limit:
                 sub_match = list(re.finditer(r"([,;:\—]+)(\s+)", self.buffer))
                 cut_idx = None
                 for sm in sub_match:
@@ -156,7 +225,7 @@ class StreamingPhraseBuffer:
                         if part.strip():
                             w_count += 1
                         idx += len(part)
-                        if w_count == self.max_words_chunk:
+                        if w_count == limit:
                             break
                     phrase = self.buffer[:idx].strip()
                     self.buffer = self.buffer[idx:]
@@ -176,209 +245,164 @@ class StreamingPhraseBuffer:
             return [remainder]
         return []
 
+    def discard(self) -> None:
+        self.buffer = ""
+
+
+AudioSink = Callable[[bytes, str], None]
+
 
 class StreamingVoiceSession:
     """
-    Concurrent Producer-Consumer Streaming Voice Session.
-    - Receives Ollama text tokens continuously as they are generated.
-    - Emits natural speakable phrases to Kokoro TTS worker immediately.
-    - Plays audio chunks in order via afplay the moment each finishes synthesis.
-    - Operates concurrently with Ollama text generation.
+    One spoken reply.
+
+    LLM tokens go in through feed_token(); only the spoken part (see SpokenPartFilter)
+    is split into phrases, synthesised by Kokoro on a worker thread, and handed to
+    `on_audio(wav_bytes, phrase_text)` in order. The caller sends those to the browser.
     """
-    def __init__(self, engine: "VoiceEngine", voice: Optional[str] = None):
+    def __init__(self, engine: "VoiceEngine", on_audio: AudioSink, voice: Optional[str] = None):
         self.engine = engine
+        self.on_audio = on_audio
         self.voice = voice or engine.neural_voice
+        self.spoken_filter = SpokenPartFilter()
         self.phrase_buffer = StreamingPhraseBuffer()
         self.phrase_queue: queue.Queue = queue.Queue()
-        self.audio_queue: queue.Queue = queue.Queue(maxsize=15)
         self.interrupt_event = threading.Event()
-        self._temp_files: List[str] = []
-        self._files_lock = threading.Lock()
+        self._finished = False
+        self._details_queued = False
 
-        # Detailed instrumentation timestamps
         self.timestamps: Dict[str, Optional[float]] = {
             "start": time.time(),
             "first_token": None,
             "first_phrase": None,
-            "synth_start": None,
-            "synth_done": None,
-            "playback_sub": None,
-            "playback_start": None,
+            "first_audio": None,
             "stream_done": None,
         }
 
-        # Start background workers
         self._tts_thread = threading.Thread(target=self._tts_worker, daemon=True)
-        self._playback_thread = threading.Thread(target=self._playback_worker, daemon=True)
         self._tts_thread.start()
-        self._playback_thread.start()
+
+    def _queue_phrase(self, phrase: str) -> None:
+        if self.timestamps["first_phrase"] is None:
+            self.timestamps["first_phrase"] = time.time()
+        self.phrase_queue.put(phrase)
 
     def feed_token(self, token: str) -> None:
-        if self.interrupt_event.is_set():
+        if self.interrupt_event.is_set() or self._finished:
             return
         if self.timestamps["first_token"] is None:
             self.timestamps["first_token"] = time.time()
 
-        phrases = self.phrase_buffer.add_token(token)
+        spoken = self.spoken_filter.feed(token)
+        phrases = self.phrase_buffer.add_token(spoken) if spoken else []
+        if self.spoken_filter.truncated and not self._details_queued:
+            # The rest is on-screen detail: speak what we have now instead of
+            # waiting for generation to finish.
+            phrases += self.phrase_buffer.flush()
+            phrases.append(DETAILS_ON_SCREEN)
+            self._details_queued = True
         for phrase in phrases:
-            if self.timestamps["first_phrase"] is None:
-                self.timestamps["first_phrase"] = time.time()
-            self.phrase_queue.put(phrase)
+            self._queue_phrase(phrase)
+
+    def say(self, phrase: str) -> None:
+        """Speak a fixed phrase now, e.g. an acknowledgement while a tool runs."""
+        if not self.interrupt_event.is_set() and not self._finished:
+            self._queue_phrase(phrase)
+
+    def discard_pending_text(self) -> None:
+        """Drop unspoken model text (used when the model switches to a tool call)."""
+        self.phrase_buffer.discard()
+        self.spoken_filter.reset()
+        self._details_queued = False
 
     def finish_text(self) -> None:
-        if self.timestamps["stream_done"] is None:
-            self.timestamps["stream_done"] = time.time()
-
-        rem = self.phrase_buffer.flush()
-        for phrase in rem:
-            if self.timestamps["first_phrase"] is None:
-                self.timestamps["first_phrase"] = time.time()
-            self.phrase_queue.put(phrase)
-
+        if self._finished:
+            return
+        self.timestamps["stream_done"] = time.time()
+        tail = self.spoken_filter.flush()
+        phrases = self.phrase_buffer.add_token(tail) if tail else []
+        phrases += self.phrase_buffer.flush()
+        for phrase in phrases:
+            self._queue_phrase(phrase)
+        if self.spoken_filter.truncated and not self._details_queued:
+            self._queue_phrase(DETAILS_ON_SCREEN)
+            self._details_queued = True
+        self._finished = True
         self.phrase_queue.put(None)
 
     def cancel(self) -> None:
         self.interrupt_event.set()
-        while not self.phrase_queue.empty():
+        while True:
             try:
                 self.phrase_queue.get_nowait()
             except queue.Empty:
                 break
-        while not self.audio_queue.empty():
-            try:
-                item = self.audio_queue.get_nowait()
-                if isinstance(item, str) and os.path.exists(item):
-                    try:
-                        os.remove(item)
-                    except OSError:
-                        pass
-            except queue.Empty:
-                break
-        with self._files_lock:
-            for f in self._temp_files:
-                if os.path.exists(f):
-                    try:
-                        os.remove(f)
-                    except OSError:
-                        pass
-            self._temp_files.clear()
+        self.phrase_queue.put(None)
+
+    def wait(self, timeout: Optional[float] = None) -> None:
+        """Block until every queued phrase has been synthesised and delivered."""
+        self._tts_thread.join(timeout)
 
     def _tts_worker(self) -> None:
-        chunk_idx = 0
         while not self.interrupt_event.is_set():
-            try:
-                phrase = self.phrase_queue.get(timeout=0.05)
-            except queue.Empty:
-                continue
-
+            phrase = self.phrase_queue.get()
             if phrase is None:
-                self.audio_queue.put(None)
                 break
 
             clean = clean_for_speech(phrase)
             if not clean:
                 continue
 
-            if self.timestamps["synth_start"] is None:
-                self.timestamps["synth_start"] = time.time()
-
-            with tempfile.NamedTemporaryFile(suffix=f"_stream_{chunk_idx}.wav", delete=False) as tf:
-                wav_path = tf.name
-            with self._files_lock:
-                self._temp_files.append(wav_path)
-
-            ok = self.engine.kokoro.synthesize_sentence(clean, wav_path, voice=self.voice)
-
-            if self.timestamps["synth_done"] is None:
-                self.timestamps["synth_done"] = time.time()
-
+            wav = self.engine.kokoro.synthesize_wav(clean, voice=self.voice)
             if self.interrupt_event.is_set():
-                if os.path.exists(wav_path):
-                    try:
-                        os.remove(wav_path)
-                    except OSError:
-                        pass
                 break
-
-            if ok and os.path.exists(wav_path) and os.path.getsize(wav_path) > 44:
-                if self.timestamps["playback_sub"] is None:
-                    self.timestamps["playback_sub"] = time.time()
-                self.audio_queue.put(wav_path)
-            else:
-                if os.path.exists(wav_path):
-                    try:
-                        os.remove(wav_path)
-                    except OSError:
-                        pass
-
-            chunk_idx += 1
-
-    def _playback_worker(self) -> None:
-        while not self.interrupt_event.is_set():
-            try:
-                item = self.audio_queue.get(timeout=0.05)
-            except queue.Empty:
+            if not wav:
                 continue
 
-            if item is None:
-                break
-
-            wav_path = item
-            if not os.path.exists(wav_path):
-                continue
-
+            if self.timestamps["first_audio"] is None:
+                self.timestamps["first_audio"] = time.time()
             try:
-                proc = subprocess.Popen(
-                    [self.engine._afplay_bin, wav_path],
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                with self.engine._lock:
-                    self.engine._current_process = proc
-
-                if self.timestamps["playback_start"] is None:
-                    self.timestamps["playback_start"] = time.time()
-                    self._log_instrumentation()
-
-                while proc.poll() is None:
-                    if self.interrupt_event.is_set() or self.engine._interrupt_event.is_set():
-                        proc.terminate()
-                        break
-                    time.sleep(0.02)
+                self.on_audio(wav, clean)
             except Exception as exc:
-                print(f"[!] Playback error: {exc}")
-            finally:
-                if os.path.exists(wav_path):
-                    try:
-                        os.remove(wav_path)
-                    except OSError:
-                        pass
+                print(f"[!] Audio delivery error: {exc}")
+                self.interrupt_event.set()
+                break
 
-    def _log_instrumentation(self) -> None:
+    def latency(self) -> Dict[str, Optional[float]]:
+        """Seconds from session start to each milestone (None if not reached)."""
         t0 = self.timestamps["start"] or time.time()
-        t_ft = self.timestamps["first_token"]
-        t_fp = self.timestamps["first_phrase"]
-        t_ss = self.timestamps["synth_start"]
-        t_sd = self.timestamps["synth_done"]
-        t_ps = self.timestamps["playback_sub"]
-        t_pb = self.timestamps["playback_start"]
-        t_done = self.timestamps["stream_done"]
+        return {
+            key: round(value - t0, 3) if value else None
+            for key, value in self.timestamps.items()
+            if key != "start"
+        }
 
-        ft_off = f"{t_ft - t0:.3f}s" if t_ft else "n/a"
-        fp_off = f"{t_fp - t0:.3f}s" if t_fp else "n/a"
-        ss_off = f"{t_ss - t0:.3f}s" if t_ss else "n/a"
-        sd_off = f"{t_sd - t0:.3f}s" if t_sd else "n/a"
-        ps_off = f"{t_ps - t0:.3f}s" if t_ps else "n/a"
-        pb_off = f"{t_pb - t0:.3f}s" if t_pb else "n/a"
-        tok_to_spk = f"{t_pb - t_ft:.3f}s" if (t_pb and t_ft) else "n/a"
-        overlap = "YES" if (t_done is None or (t_pb and t_pb < t_done)) else "NO"
 
-        print(
-            f"\033[1;36m[STREAMING VOICE PIPELINE]\033[0m "
-            f"1st token: {ft_off} | 1st phrase: {fp_off} | Synth: {ss_off}->{sd_off} | "
-            f"Audible speech: {pb_off} (Token->Speech: {tok_to_spk}) | Overlap: {overlap}"
-        )
+def _reuse_espeak_backend(tokenizer) -> None:
+    """
+    kokoro-onnx calls phonemizer.phonemize(), which builds a new espeak backend
+    (reloading the shared library) on every call: ~0.5 s per phrase. Keep one per language.
+    espeak is not thread-safe; callers must hold KokoroTTSEngine._lock.
+    """
+    try:
+        from phonemizer.backend import EspeakBackend
+        from phonemizer.separator import default_separator
+    except ImportError:
+        return
+
+    backends = {}
+
+    def phonemize(text, lang="en-us", norm=True):
+        if norm:
+            text = tokenizer.normalize_text(text)
+        backend = backends.get(lang)
+        if backend is None:
+            backend = EspeakBackend(lang, preserve_punctuation=True, with_stress=True)
+            backends[lang] = backend
+        phonemes = backend.phonemize([text], separator=default_separator, strip=False)[0]
+        return "".join(p for p in phonemes if p in tokenizer.vocab).strip()
+
+    tokenizer.phonemize = phonemize
 
 
 class KokoroTTSEngine:
@@ -397,6 +421,7 @@ class KokoroTTSEngine:
             with self._lock:
                 if self.kokoro is None:
                     self.kokoro = Kokoro(str(KOKORO_MODEL_PATH), str(KOKORO_VOICES_PATH))
+                    _reuse_espeak_backend(self.kokoro.tokenizer)
             return True
         except Exception as exc:
             print(f"[!] Kokoro load error: {exc}")
@@ -410,24 +435,25 @@ class KokoroTTSEngine:
             return True
         return any(voice.startswith(prefix) for prefix in ("am_", "af_", "bm_", "bf_", "zf_", "zm_"))
 
-    def synthesize_sentence(self, text: str, output_path: str, voice: Optional[str] = None) -> bool:
-        """Synthesize a single sentence to a WAV file."""
+    def synthesize_wav(self, text: str, voice: Optional[str] = None) -> Optional[bytes]:
+        """Synthesize text to 16-bit PCM WAV bytes, or None on failure."""
         if not self.is_available():
-            return False
+            return None
         target_voice = voice or self.voice_name
         if not self.is_valid_voice(target_voice):
-            return False
-        if not self.kokoro:
-            if not self._load_model_safe():
-                return False
+            target_voice = self.voice_name
+        if not self.kokoro and not self._load_model_safe():
+            return None
 
         try:
-            samples, sample_rate = self.kokoro.create(text, voice=target_voice, speed=1.05, lang="en-us")
-            sf.write(output_path, samples, sample_rate)
-            return True
+            with self._lock:
+                samples, sample_rate = self.kokoro.create(text, voice=target_voice, speed=KOKORO_SPEED, lang="en-us")
+            buf = io.BytesIO()
+            sf.write(buf, samples, sample_rate, format="WAV", subtype="PCM_16")
+            return buf.getvalue()
         except Exception as e:
             print(f"[!] Kokoro synthesis error on '{text[:30]}...': {e}")
-            return False
+            return None
 
 
 class VoiceEngine:
@@ -439,14 +465,9 @@ class VoiceEngine:
         self.use_neural = self._is_neural_voice(voice_name)
 
         self._current_process: Optional[subprocess.Popen] = None
-        self._interrupt_event = threading.Event()
-        self._playback_thread: Optional[threading.Thread] = None
-        self._producer_thread: Optional[threading.Thread] = None
         self._current_session: Optional[StreamingVoiceSession] = None
-        self._audio_queue: queue.Queue = queue.Queue(maxsize=15)
         self._lock = threading.Lock()
         self._say_bin = shutil.which("say") or "/usr/bin/say"
-        self._afplay_bin = shutil.which("afplay") or "/usr/bin/afplay"
 
     def _is_kokoro_voice(self, voice: Optional[str]) -> bool:
         if not voice:
@@ -463,10 +484,7 @@ class VoiceEngine:
         return voice.lower() not in system_voices
 
     def is_available(self) -> bool:
-        return (
-            (self.use_neural and self.kokoro.is_available())
-            or os.path.exists(self._say_bin)
-        )
+        return (self.use_neural and self.kokoro.is_available()) or os.path.exists(self._say_bin)
 
     def set_enabled(self, enabled: bool) -> None:
         with self._lock:
@@ -478,28 +496,13 @@ class VoiceEngine:
         with self._lock:
             return self.enabled
 
-    def set_neural_enabled(self, use_neural: bool) -> None:
-        with self._lock:
-            self.use_neural = bool(use_neural)
-
     def stop(self) -> None:
-        """Interrupt and terminate any actively playing or generating speech immediately."""
+        """Interrupt any active spoken reply or alert immediately."""
         with self._lock:
             self.stop_locked()
-
-    def start_streaming_session(self, voice: Optional[str] = None) -> StreamingVoiceSession:
-        with self._lock:
-            self.stop_locked()
-            self._interrupt_event.clear()
-            self._drain_queue()
-        session = StreamingVoiceSession(self, voice=voice)
-        self._current_session = session
-        return session
 
     def stop_locked(self) -> None:
-        self._interrupt_event.set()
-
-        if hasattr(self, "_current_session") and self._current_session is not None:
+        if self._current_session is not None:
             self._current_session.cancel()
             self._current_session = None
 
@@ -515,30 +518,19 @@ class VoiceEngine:
                         pass
             self._current_process = None
 
-        self._drain_queue()
+    def start_streaming_session(self, on_audio: AudioSink, voice: Optional[str] = None) -> StreamingVoiceSession:
+        with self._lock:
+            self.stop_locked()
+            session = StreamingVoiceSession(self, on_audio=on_audio, voice=voice)
+            self._current_session = session
+        return session
 
-        if self._playback_thread is not None and self._playback_thread.is_alive():
-            if threading.current_thread() != self._playback_thread:
-                self._playback_thread.join(timeout=0.15)
-            self._playback_thread = None
-
-        if self._producer_thread is not None and self._producer_thread.is_alive():
-            if threading.current_thread() != self._producer_thread:
-                self._producer_thread.join(timeout=0.15)
-            self._producer_thread = None
-
-    def _drain_queue(self):
-        """Purge any remaining audio chunks from the queue and unlink temp files."""
-        while not self._audio_queue.empty():
-            try:
-                item = self._audio_queue.get_nowait()
-                if isinstance(item, str) and os.path.exists(item):
-                    try:
-                        os.remove(item)
-                    except OSError:
-                        pass
-            except queue.Empty:
-                break
+    def synthesize(self, text: str, voice: Optional[str] = None) -> Optional[bytes]:
+        """One-shot WAV synthesis for short alerts played by the browser."""
+        clean = clean_for_speech(text)
+        if not clean:
+            return None
+        return self.kokoro.synthesize_wav(clean, voice=voice or self.neural_voice)
 
     def is_speaking(self) -> bool:
         with self._lock:
@@ -546,138 +538,16 @@ class VoiceEngine:
                 if self._current_process.poll() is None:
                     return True
                 self._current_process = None
-            if self._playback_thread is not None and self._playback_thread.is_alive():
-                return True
-            if hasattr(self, "_current_session") and self._current_session is not None:
-                if (
-                    self._current_session._playback_thread is not None
-                    and self._current_session._playback_thread.is_alive()
-                ):
-                    return True
             return False
 
     def speak(self, text: str, voice: Optional[str] = None) -> bool:
-        """
-        Speak text non-blockingly using Kokoro Neural TTS.
-        Pipelined sentence-by-sentence background synthesis and afplay playback.
-        """
+        """Speak an alert through the Mac speakers. Only used when no Appu window is open."""
         if not self.enabled or not text.strip():
             return False
-
-        with self._lock:
-            self.stop_locked()
-            self._interrupt_event.clear()
-            self._drain_queue()
-
-        target_voice = voice or self.neural_voice
-        if self.use_neural and self._is_neural_voice(target_voice):
-            if self.kokoro.is_available():
-                self._start_pipelined_playback(text, target_voice)
-                return True
-
-        # Fallback to system say
         return self._speak_system_say(text, voice)
 
-    def _start_pipelined_playback(self, text: str, voice: str):
-        sentences = split_into_sentences(text)
-        if not sentences:
-            return
-
-        # Start consumer player thread
-        consumer = threading.Thread(
-            target=self._play_queued_audio,
-            daemon=True,
-        )
-        self._playback_thread = consumer
-        consumer.start()
-
-        # Start producer synthesizer thread
-        producer = threading.Thread(
-            target=self._synthesize_sentences_to_queue,
-            args=(sentences, voice),
-            daemon=True,
-        )
-        self._producer_thread = producer
-        producer.start()
-
-    def _synthesize_sentences_to_queue(self, sentences: List[str], voice: str):
-        target_voice = voice if self._is_kokoro_voice(voice) else "am_adam"
-        for idx, sentence in enumerate(sentences):
-            if self._interrupt_event.is_set():
-                break
-
-            clean_sentence = clean_for_speech(sentence)
-            if not clean_sentence:
-                continue
-
-            with tempfile.NamedTemporaryFile(suffix=f"_chunk_{idx}.wav", delete=False) as tf:
-                wav_path = tf.name
-
-            # Synthesize exclusively with Kokoro Neural TTS (~1.1s)
-            success = self.kokoro.synthesize_sentence(clean_sentence, wav_path, voice=target_voice)
-
-            if self._interrupt_event.is_set():
-                if os.path.exists(wav_path):
-                    try:
-                        os.remove(wav_path)
-                    except OSError:
-                        pass
-                break
-
-            if success and os.path.exists(wav_path) and os.path.getsize(wav_path) > 44:
-                self._audio_queue.put(wav_path)
-            else:
-                if os.path.exists(wav_path):
-                    try:
-                        os.remove(wav_path)
-                    except OSError:
-                        pass
-
-        # Sentinel to signal playback thread that synthesis is complete
-        self._audio_queue.put(None)
-
-    def _play_queued_audio(self):
-        """Consumer thread: plays audio files from _audio_queue as they become available."""
-        while not self._interrupt_event.is_set():
-            try:
-                item = self._audio_queue.get(timeout=0.1)
-            except queue.Empty:
-                continue
-
-            if item is None:
-                break
-
-            wav_path = item
-            if not os.path.exists(wav_path):
-                continue
-
-            try:
-                proc = subprocess.Popen(
-                    [self._afplay_bin, wav_path],
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                with self._lock:
-                    self._current_process = proc
-
-                while proc.poll() is None:
-                    if self._interrupt_event.is_set():
-                        proc.terminate()
-                        break
-                    time.sleep(0.02)
-            except Exception as exc:
-                print(f"[!] afplay error: {exc}")
-                break
-            finally:
-                if os.path.exists(wav_path):
-                    try:
-                        os.remove(wav_path)
-                    except OSError:
-                        pass
-
     def _speak_system_say(self, text: str, voice: Optional[str] = None) -> bool:
-        """Fallback to macOS /usr/bin/say."""
+        """Speak via macOS /usr/bin/say."""
         clean_text = clean_for_speech(text)
         if not clean_text or not os.path.exists(self._say_bin):
             return False
@@ -702,21 +572,12 @@ class VoiceEngine:
 
     def warmup(self) -> bool:
         """Pre-warm Kokoro Neural TTS in background on startup."""
-        if self.kokoro.is_available():
-            try:
-                self.kokoro._load_model_safe()
-                with tempfile.NamedTemporaryFile(suffix="_warmup.wav", delete=False) as tf:
-                    tmp_p = tf.name
-                ok = self.kokoro.synthesize_sentence("Hi", tmp_p, voice="am_adam")
-                if os.path.exists(tmp_p):
-                    try:
-                        os.remove(tmp_p)
-                    except OSError:
-                        pass
-                return ok
-            except Exception:
-                return False
-        return False
+        if not self.kokoro.is_available():
+            return False
+        try:
+            return self.kokoro.synthesize_wav("Hi", voice="am_adam") is not None
+        except Exception:
+            return False
 
 
 # Global voice engine singleton configured for low-latency streaming

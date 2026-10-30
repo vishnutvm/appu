@@ -4,7 +4,9 @@ APPU — Personal AI Assistant
 Local assistant running on macOS with Ollama, Qwen, and Cybernetic HUD UI.
 """
 
+import base64
 from dataclasses import dataclass
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -33,7 +35,9 @@ from reminders import (
     list_reminders,
     send_macos_notification,
 )
+from conversation import Conversation
 from stt import LOCAL_STT
+from turn import TURN_DETECTOR, decode_wav
 from voice import KOKORO_VOICES, VOICE
 
 
@@ -47,6 +51,9 @@ MAX_TOOL_ROUNDS = 2
 MAX_TOOL_CALLS = 3
 # Spoken replies are kept short by the system prompt, not by truncation.
 NUM_PREDICT = 1024
+MAX_TTS_CHARS = 300
+# 16 kHz 16-bit mono: 60 s of audio is ~1.9 MB.
+MAX_TURN_AUDIO_BYTES = 2_000_000
 
 # Explicit registry: the model cannot supply arbitrary filesystem paths.
 PROJECTS = {
@@ -63,8 +70,10 @@ Your personality is friendly, intelligent, calm, curious, and dependable. You ar
 Voice & Conversation Guidelines:
 - You speak directly to the user aloud via a local neural voice system (Kokoro). You are an interactive voice assistant.
 - Never claim that you do not have a voice, cannot speak, or lack audio features.
-- Speak in natural, fluid sentences. Avoid robotic fragments or long unpunctuated bullet lists.
-- Be clear, natural, and concise by default (typically 1-2 sentences unless more detail is requested).
+- Speak in natural, fluid sentences. Avoid robotic fragments.
+- Start every reply with a short spoken answer: one or two plain sentences, no lists, code, or links.
+- Only the first paragraph is read aloud. If more detail helps (lists, steps, code, links), put it after a blank line in Markdown; it is shown on screen, not spoken.
+- You remember the earlier turns of this conversation; use them to resolve things like "the second one" or "do that again".
 - Explain technical matters accurately and use appropriate technical terminology.
 - Match the user's tone without copying spelling mistakes.
 - For greetings, compliments, and casual conversation (e.g. "hi", "how are you", "who are you"), respond directly, warmly, and conversationally.
@@ -371,13 +380,30 @@ def check_ollama_status() -> bool:
         return False
 
 
+def build_system_prompt(now: Optional[datetime] = None) -> str:
+    now = now or datetime.now()
+    clock = now.strftime("%A %d %B %Y, %I:%M %p").replace(" 0", " ")
+    return f"{SYSTEM_PROMPT}\nCurrent local date and time: {clock}.\n"
+
+
+class TurnInterrupted(Exception):
+    """The user interrupted Appu mid-reply. `partial` is what had been generated."""
+
+    def __init__(self, partial: str):
+        super().__init__("Interrupted by the user.")
+        self.partial = partial
+
+
 def ask_local_model(
     user_message: str,
     on_token: Optional[Callable[[str], None]] = None,
-    on_tool_call: Optional[Callable[[], None]] = None,
+    on_tool_call: Optional[Callable[[list], None]] = None,
     on_round_start: Optional[Callable[[int], None]] = None,
     tool_events: Optional[list] = None,
+    history: Optional[list] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> str:
+    """Run one turn and return the model's raw (Markdown) answer."""
     message = user_message.strip()
 
     if not message:
@@ -388,10 +414,9 @@ def ask_local_model(
             f"Message is too long. Limit: {MAX_INPUT_LENGTH} characters."
         )
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": message},
-    ]
+    messages = [{"role": "system", "content": build_system_prompt()}]
+    messages.extend(history or [])
+    messages.append({"role": "user", "content": message})
 
     seen_tool_calls = set()
     total_tool_calls = 0
@@ -426,42 +451,28 @@ def ask_local_model(
         try:
             with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
                 if hasattr(response, "__iter__") and not hasattr(response, "body"):
-                    for line in response:
-                        if not line.strip():
-                            continue
-                        try:
-                            chunk = json.loads(line.decode("utf-8"))
-                        except (json.JSONDecodeError, UnicodeDecodeError):
-                            continue
-                        msg = chunk.get("message", {})
-                        if isinstance(msg, dict):
-                            delta = msg.get("content", "")
-                            if delta:
-                                accumulated_content += delta
-                                if on_token:
-                                    on_token(delta)
-                            tc = msg.get("tool_calls")
-                            if tc:
-                                tool_calls.extend(tc)
+                    lines = response
                 else:
-                    data = response.read()
-                    for line in data.split(b"\n"):
-                        if not line.strip():
-                            continue
-                        try:
-                            chunk = json.loads(line.decode("utf-8"))
-                        except Exception:
-                            continue
-                        msg = chunk.get("message", {})
-                        if isinstance(msg, dict):
-                            delta = msg.get("content", "")
-                            if delta:
-                                accumulated_content += delta
-                                if on_token:
-                                    on_token(delta)
-                            tc = msg.get("tool_calls")
-                            if tc:
-                                tool_calls.extend(tc)
+                    lines = response.read().split(b"\n")
+                for line in lines:
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise TurnInterrupted(accumulated_content)
+                    if not line.strip():
+                        continue
+                    try:
+                        chunk = json.loads(line.decode("utf-8"))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
+                    msg = chunk.get("message", {})
+                    if isinstance(msg, dict):
+                        delta = msg.get("content", "")
+                        if delta:
+                            accumulated_content += delta
+                            if on_token:
+                                on_token(delta)
+                        tc = msg.get("tool_calls")
+                        if tc:
+                            tool_calls.extend(tc)
         except HTTPError as exc:
             raise RuntimeError(
                 f"Ollama returned HTTP {exc.code}."
@@ -471,17 +482,24 @@ def ask_local_model(
                 "Could not reach Ollama. Check that Ollama is running."
             ) from None
 
+        if cancel_event is not None and cancel_event.is_set():
+            raise TurnInterrupted(accumulated_content)
+
         if not tool_calls:
             answer = accumulated_content
             if not isinstance(answer, str) or not answer.strip():
                 raise RuntimeError("The model returned an empty answer.")
-            return clean_terminal_text(answer)
+            return answer.strip()
 
         if not isinstance(tool_calls, list):
             raise RuntimeError("Ollama returned an invalid tool call structure.")
 
         if on_tool_call:
-            on_tool_call()
+            on_tool_call([
+                tc.get("function", {}).get("name")
+                for tc in tool_calls
+                if isinstance(tc, dict) and isinstance(tc.get("function"), dict)
+            ])
 
         if total_tool_calls + len(tool_calls) > MAX_TOOL_CALLS:
             raise RuntimeError(
@@ -556,36 +574,124 @@ SHUTDOWN_EVENT = threading.Event()
 
 PENDING_NOTIFICATIONS = []
 NOTIFICATION_LOCK = threading.Lock()
+# The window polls /api/notifications every few seconds; if it stopped, nobody is listening.
+UI_POLL_GRACE_SECONDS = 10
+_last_ui_poll = 0.0
+
+
+def mark_window_poll() -> None:
+    global _last_ui_poll
+    _last_ui_poll = time.time()
+
+
+def window_is_open() -> bool:
+    return time.time() - _last_ui_poll < UI_POLL_GRACE_SECONDS
 
 
 def start_reminder_daemon():
-    """Background daemon thread to poll due reminders and trigger native notifications and voice alerts."""
+    """Background thread: claim due reminders, show a banner, and speak the alert."""
     def worker():
         while not SHUTDOWN_EVENT.is_set():
             try:
                 # Atomically claim due reminders: guarantees exactly-once delivery across threads
-                due_items = fetch_and_claim_due_reminders()
-                for item in due_items:
-                    rem_id = item["id"]
+                for item in fetch_and_claim_due_reminders():
                     title = item["title"]
-                    due_str = item["due_time"]
+                    send_macos_notification("Appu reminder", f"{title} (due {item['due_time']})")
 
-                    # 1. Native macOS desktop banner notification (non-blocking)
-                    send_macos_notification("APPU Reminder", f"{title} (Due: {due_str})")
-
-                    # 2. Add to queue for frontend HUD notification
+                    speak_in_window = VOICE.is_enabled() and window_is_open()
                     with NOTIFICATION_LOCK:
-                        PENDING_NOTIFICATIONS.append(item)
+                        PENDING_NOTIFICATIONS.append({
+                            **item,
+                            "speak": f"Reminder: {title}" if speak_in_window else None,
+                        })
 
-                    # 3. Spoken alert if voice is enabled
-                    if VOICE.is_enabled():
-                        VOICE.speak(f"Reminder alert: {title}")
+                    if VOICE.is_enabled() and not speak_in_window:
+                        VOICE.speak(f"Reminder: {title}")
             except Exception as exc:
                 print(f"[!] Reminder daemon error: {exc}", file=sys.stderr)
             time.sleep(3)
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
+
+
+CONVERSATION = Conversation()
+_turn_lock = threading.Lock()
+_current_turn_cancel: Optional[threading.Event] = None
+
+TOOL_ACKNOWLEDGEMENTS = {
+    "list_reminders": "Checking your reminders.",
+    "create_reminder": "Setting that up.",
+    "open_project": "Opening it now.",
+}
+
+
+def begin_turn() -> threading.Event:
+    """Start a new turn, cancelling any turn still running."""
+    global _current_turn_cancel
+    cancel = threading.Event()
+    with _turn_lock:
+        if _current_turn_cancel is not None:
+            _current_turn_cancel.set()
+        _current_turn_cancel = cancel
+    return cancel
+
+
+def end_turn(cancel: threading.Event) -> None:
+    global _current_turn_cancel
+    with _turn_lock:
+        if _current_turn_cancel is cancel:
+            _current_turn_cancel = None
+
+
+def interrupt_turn() -> bool:
+    """Barge-in: stop the running turn (LLM stream and speech). Returns True if one was running."""
+    with _turn_lock:
+        cancel = _current_turn_cancel
+    VOICE.stop()
+    if cancel is None:
+        return False
+    cancel.set()
+    return True
+
+
+class EventStream:
+    """Writes newline-delimited JSON events to a streaming HTTP response."""
+
+    def __init__(self, wfile, on_disconnect: Callable[[], None]):
+        self._wfile = wfile
+        self._lock = threading.Lock()
+        self._on_disconnect = on_disconnect
+        self.closed = False
+
+    def send(self, event_type: str, **data) -> None:
+        line = (json.dumps({"type": event_type, **data}) + "\n").encode("utf-8")
+        with self._lock:
+            if self.closed:
+                return
+            try:
+                self._wfile.write(line)
+                self._wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                self.closed = True
+                self._on_disconnect()
+
+
+def log_turn_latency(timing: dict, session_latency: Optional[dict], total_sec: float) -> None:
+    """One JSON line per turn: end of speech -> transcript -> first token -> first audio."""
+    record = {"event": "turn_latency", "total_sec": round(total_sec, 3)}
+    if isinstance(timing, dict):
+        for key in ("stt_sec", "speech_end_to_send_ms"):
+            if isinstance(timing.get(key), (int, float)):
+                record[key] = timing[key]
+    if session_latency:
+        record["first_token_sec"] = session_latency.get("first_token")
+        record["first_audio_sec"] = session_latency.get("first_audio")
+        if record["first_audio_sec"] is not None and "speech_end_to_send_ms" in record:
+            record["speech_end_to_first_audio_sec"] = round(
+                record["speech_end_to_send_ms"] / 1000 + record["first_audio_sec"], 3
+            )
+    print(json.dumps(record), flush=True)
 
 
 def analyze_intent_and_emotion(user_msg: str, tool_events: list) -> tuple[str, str]:
@@ -679,6 +785,7 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
             self._send_json(data)
 
         elif self.path == "/api/notifications":
+            mark_window_poll()
             with NOTIFICATION_LOCK:
                 items = list(PENDING_NOTIFICATIONS)
                 PENDING_NOTIFICATIONS.clear()
@@ -697,6 +804,7 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
                 "active_voice": getattr(VOICE, "neural_voice", "am_adam"),
                 "active_model": "hexgrad/Kokoro-82M",
                 "asr_model": getattr(LOCAL_STT, "model", "whisper-1"),
+                "turn_detection": TURN_DETECTOR.available(),
             })
 
         elif self.path == "/api/voice/voices":
@@ -716,70 +824,126 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
+    def _read_json(self):
+        content_len = int(self.headers.get("Content-Length", 0))
+        if content_len <= 0:
+            return {}
+        try:
+            payload = json.loads(self.rfile.read(content_len).decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _handle_chat(self):
+        req = self._read_json()
+        if req is None or not isinstance(req.get("message"), str):
+            self._send_json({"error": "Invalid request."}, status=400)
+            return
+        user_msg = req["message"]
+        speak = bool(req.get("speak", True)) and VOICE.is_enabled()
+        started = time.time()
+
+        cancel = begin_turn()
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+        except (BrokenPipeError, ConnectionResetError):
+            end_turn(cancel)
+            return
+
+        stream = EventStream(self.wfile, on_disconnect=cancel.set)
+        stream.send("state", state="thinking")
+        spoke = threading.Event()
+
+        def on_audio(wav: bytes, text: str):
+            if not spoke.is_set():
+                spoke.set()
+                stream.send("state", state="speaking")
+            stream.send("audio_chunk", audio=base64.b64encode(wav).decode("ascii"), text=text)
+
+        session = VOICE.start_streaming_session(on_audio=on_audio) if speak else None
+
+        def on_token(delta: str):
+            stream.send("text_delta", text=delta)
+            if session:
+                session.feed_token(delta)
+
+        def on_tool_call(names: list):
+            # Text before a tool call is the model thinking aloud; the real answer follows.
+            stream.send("text_reset")
+            stream.send("state", state="executing")
+            if session:
+                session.discard_pending_text()
+                ack = next((TOOL_ACKNOWLEDGEMENTS[n] for n in names if n in TOOL_ACKNOWLEDGEMENTS), "One sec.")
+                session.say(ack)
+
+        tool_events = []
+        try:
+            answer = ask_local_model(
+                user_msg,
+                on_token=on_token,
+                on_tool_call=on_tool_call,
+                tool_events=tool_events,
+                history=CONVERSATION.messages(),
+                cancel_event=cancel,
+            )
+            CONVERSATION.add_turn(user_msg, answer)
+            for event in tool_events:
+                stream.send("tool_event", name=event["name"], ok=event["ok"])
+            if session:
+                session.finish_text()
+                session.wait(timeout=TIMEOUT_SECONDS)
+            emotion, activity = analyze_intent_and_emotion(user_msg, tool_events)
+            stream.send(
+                "done",
+                answer=answer,
+                emotion=emotion,
+                activity=activity,
+                executed_tool=any(e["ok"] for e in tool_events),
+                interrupted=cancel.is_set(),
+            )
+        except TurnInterrupted as exc:
+            if session:
+                session.cancel()
+            CONVERSATION.add_turn(user_msg, exc.partial, interrupted=True)
+            stream.send("done", answer=exc.partial, interrupted=True)
+        except Exception as exc:
+            if session:
+                session.cancel()
+            stream.send("error", message=str(exc))
+        finally:
+            end_turn(cancel)
+            log_turn_latency(req.get("timing"), session.latency() if session else None, time.time() - started)
+
     def do_POST(self):
         if self.path == "/api/chat":
-            content_len = int(self.headers.get("Content-Length", 0))
-            post_body = self.rfile.read(content_len)
-            voice_session = None
-            try:
-                # Stop any active voice on new turn
-                VOICE.stop()
+            self._handle_chat()
 
-                req_data = json.loads(post_body.decode("utf-8"))
-                user_msg = req_data.get("message", "")
+        elif self.path == "/api/chat/stop":
+            req = self._read_json() or {}
+            running = interrupt_turn()
+            if not running and req.get("during_playback"):
+                CONVERSATION.mark_last_interrupted()
+            self._send_json({"stopped": running})
 
-                # Start concurrent streaming voice session
-                if VOICE.is_enabled():
-                    voice_session = VOICE.start_streaming_session()
+        elif self.path == "/api/conversation/new":
+            interrupt_turn()
+            CONVERSATION.clear()
+            self._send_json({"ok": True})
 
-                def on_token_cb(delta: str):
-                    if voice_session:
-                        voice_session.feed_token(delta)
-
-                def on_tool_call_cb():
-                    nonlocal voice_session
-                    if voice_session:
-                        voice_session.cancel()
-                        voice_session = None
-
-                def on_round_start_cb(round_idx: int):
-                    nonlocal voice_session
-                    if round_idx > 0 and VOICE.is_enabled():
-                        if voice_session:
-                            voice_session.cancel()
-                        voice_session = VOICE.start_streaming_session()
-
-                tool_events = []
-                answer = ask_local_model(
-                    user_msg,
-                    on_token=on_token_cb,
-                    on_tool_call=on_tool_call_cb,
-                    on_round_start=on_round_start_cb,
-                    tool_events=tool_events,
-                )
-
-                if voice_session:
-                    voice_session.finish_text()
-
-                executed_tool = any(event["ok"] for event in tool_events)
-                emotion, activity = analyze_intent_and_emotion(user_msg, tool_events)
-
-                res_data = {
-                    "answer": answer,
-                    "emotion": emotion,
-                    "activity": activity,
-                    "executed_tool": executed_tool,
-                }
-            except Exception as exc:
-                if voice_session:
-                    voice_session.cancel()
-                res_data = {
-                    "error": str(exc),
-                    "emotion": "empathetic",
-                    "activity": "error",
-                }
-
-            self._send_json(res_data)
+        elif self.path == "/api/tts":
+            req = self._read_json()
+            text = req.get("text") if isinstance(req, dict) else None
+            if not isinstance(text, str) or not text.strip() or len(text) > MAX_TTS_CHARS:
+                self._send_json({"error": "Invalid text."}, status=400)
+                return
+            wav = VOICE.synthesize(text) if VOICE.is_enabled() else None
+            if not wav:
+                self._send_json({"error": "Speech is unavailable."}, status=503)
+                return
+            self._send_bytes(wav, content_type="audio/wav")
 
         elif self.path == "/api/voice/toggle":
             content_len = int(self.headers.get("Content-Length", 0))
@@ -795,6 +959,17 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
                 new_state = not VOICE.is_enabled()
             VOICE.set_enabled(new_state)
             self._send_json({"enabled": VOICE.is_enabled()})
+
+        elif self.path == "/api/voice/turn":
+            content_len = int(self.headers.get("Content-Length", 0))
+            if not 0 < content_len <= MAX_TURN_AUDIO_BYTES:
+                self._send_json({"error": "Invalid audio."}, status=400)
+                return
+            audio_bytes = self.rfile.read(content_len)
+            try:
+                self._send_json(TURN_DETECTOR.check(decode_wav(audio_bytes)))
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, status=503)
 
         elif self.path == "/api/voice/transcribe":
             content_len = int(self.headers.get("Content-Length", 0))
@@ -829,7 +1004,7 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"active_voice": chosen_voice, "success": True})
 
         elif self.path == "/api/voice/stop":
-            VOICE.stop()
+            interrupt_turn()
             try:
                 self.send_response(200)
                 self.end_headers()
@@ -898,6 +1073,7 @@ def run_terminal_mode():
     print(f"Model: {MODEL} | Online: {check_ollama_status()}")
     print("Registered project: appu (~/Developer/appu)")
     print("Type 'exit' to quit.\n")
+    conversation = Conversation()
 
     while True:
         try:
@@ -911,8 +1087,9 @@ def run_terminal_mode():
             break
 
         try:
-            answer = ask_local_model(user_message)
-            print(f"\n\033[1;38;2;0;229;255mAppu >\033[0m {answer}\n")
+            answer = ask_local_model(user_message, history=conversation.messages())
+            conversation.add_turn(user_message, answer)
+            print(f"\n\033[1;38;2;0;229;255mAppu >\033[0m {clean_terminal_text(answer)}\n")
         except (ValueError, RuntimeError) as exc:
             print(f"\n\033[38;2;255;100;100mError:\033[0m {exc}\n")
 
@@ -955,6 +1132,7 @@ def main():
     # Warm up local speech-to-text and VoiceStudio neural TTS in background
     threading.Thread(target=LOCAL_STT.warmup, daemon=True).start()
     threading.Thread(target=VOICE.warmup, daemon=True).start()
+    threading.Thread(target=TURN_DETECTOR.warmup, daemon=True).start()
 
     if "--daemon" in sys.argv or "--background" in sys.argv:
         if not acquire_instance_lock():
