@@ -10,10 +10,8 @@ from reminders import (
     complete_reminder,
     create_reminder,
     fetch_and_claim_due_reminders,
-    get_due_reminders,
     init_db,
     list_reminders,
-    mark_reminder_notified,
     parse_due_time,
     send_macos_notification,
 )
@@ -78,18 +76,19 @@ class TestReminders(unittest.TestCase):
         self.assertEqual(len(completed), 1)
         self.assertEqual(completed[0]["status"], "completed")
 
-    def test_due_reminders_and_notification(self):
-        # Create reminder 1 second in the future
-        res = create_reminder("Quick alert", "in 1 seconds", db_path=self.db_path)
-        time.sleep(1.1)
+    def test_cancel_completed_reminder_is_rejected(self):
+        res = create_reminder("Already done", "in 1 hour", db_path=self.db_path)
+        complete_reminder(res["id"], db_path=self.db_path)
+        cancel_res = cancel_reminder(res["id"], db_path=self.db_path)
+        self.assertFalse(cancel_res["success"])
+        completed = list_reminders(status="completed", db_path=self.db_path)
+        self.assertEqual(len(completed), 1)
 
-        due = get_due_reminders(db_path=self.db_path)
-        self.assertEqual(len(due), 1)
-        self.assertEqual(due[0]["id"], res["id"])
-
-        mark_reminder_notified(res["id"], db_path=self.db_path)
-        due_after = get_due_reminders(db_path=self.db_path)
-        self.assertEqual(len(due_after), 0)
+    def test_cancel_notified_reminder_is_allowed(self):
+        res = create_reminder("Fired already", "in 1 seconds", db_path=self.db_path)
+        fetch_and_claim_due_reminders(current_time=time.time() + 5, db_path=self.db_path)
+        cancel_res = cancel_reminder(res["id"], db_path=self.db_path)
+        self.assertTrue(cancel_res["success"])
 
     def test_parse_12hr_formats(self):
         ts1, s1 = parse_due_time("5:30 pm")

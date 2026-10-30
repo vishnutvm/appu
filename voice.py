@@ -1,13 +1,9 @@
 """
-APPU High-Quality Voice Engine.
-Combines VoiceStudio OpenAI-compatible Neural TTS (k2-fsa/OmniVoice on Apple Silicon MPS)
-with chunked sentence streaming and macOS native afplay,
-with automatic fallback to Kokoro ONNX and macOS /usr/bin/say.
+APPU Voice Engine.
+Kokoro ONNX neural TTS with sentence-level streaming and macOS afplay playback,
+falling back to macOS /usr/bin/say when Kokoro is unavailable.
 """
 
-from concurrent.futures import ThreadPoolExecutor
-import io
-import json
 import os
 from pathlib import Path
 import queue
@@ -17,9 +13,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from typing import Any, Dict, List, Optional
-import urllib.request
-import urllib.error
+from typing import Dict, List, Optional
 
 try:
     from kokoro_onnx import Kokoro
@@ -31,6 +25,15 @@ except ImportError:
 
 KOKORO_MODEL_PATH = Path.home() / "Developer" / "jarvis" / "models" / "kokoro" / "kokoro-v1.0.onnx"
 KOKORO_VOICES_PATH = Path.home() / "Developer" / "jarvis" / "models" / "kokoro" / "voices-v1.0.bin"
+
+# Voices offered in the UI; selection requests are validated against this list.
+KOKORO_VOICES = {
+    "am_adam": "Adam (American male)",
+    "af_bella": "Bella (American female)",
+    "af_sarah": "Sarah (American female)",
+    "bm_george": "George (British male)",
+    "bf_emma": "Emma (British female)",
+}
 
 
 def clean_for_speech(text: str) -> str:
@@ -378,97 +381,6 @@ class StreamingVoiceSession:
         )
 
 
-class VoiceStudioTTSClient:
-    """
-    Client adapter for VoiceStudio POST /v1/audio/speech.
-    Uses discovered local VoiceStudio instance at http://127.0.0.1:3900.
-    Configured with demo0001 reference profile, fixed seed=42, and num_step=8
-    to guarantee 100% voice consistency across all sentence chunks.
-    """
-    def __init__(
-        self,
-        base_url: str = "http://127.0.0.1:3900",
-        model: str = "tts-1",
-        voice_name: str = "demo0001",
-        num_step: int = 8,
-        seed: int = 42
-    ):
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-        self.voice_name = voice_name
-        self.num_step = num_step
-        self.seed = seed
-        self._available_cache: Optional[bool] = None
-        self._last_health_check = 0.0
-
-    def is_available(self, timeout: float = 1.0) -> bool:
-        now = time.time()
-        if self._available_cache is not None and (now - self._last_health_check) < 5.0:
-            return self._available_cache
-        try:
-            req = urllib.request.Request(f"{self.base_url}/health")
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                self._available_cache = (resp.status == 200)
-                self._last_health_check = now
-                return self._available_cache
-        except Exception:
-            self._available_cache = False
-            self._last_health_check = now
-            return False
-
-    def list_voices(self) -> List[Dict[str, Any]]:
-        """Fetch discovered voices and profiles from VoiceStudio /v1/audio/voices."""
-        try:
-            req = urllib.request.Request(f"{self.base_url}/v1/audio/voices")
-            with urllib.request.urlopen(req, timeout=2.0) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return data.get("voices", [])
-        except Exception:
-            return []
-
-    def synthesize_sentence(
-        self,
-        text: str,
-        output_path: str,
-        voice: Optional[str] = None,
-        timeout: float = 25.0
-    ) -> bool:
-        """Synthesize text via POST /v1/audio/speech with consistent voice profile and seed."""
-        clean_text = clean_for_speech(text)
-        if not clean_text:
-            return False
-
-        # Resolve voice: if generic alias or not specified, use the cloned profile demo0001
-        target_voice = voice or self.voice_name
-        if target_voice in ("alloy", "default", "auto", None):
-            target_voice = "demo0001"
-
-        payload = json.dumps({
-            "model": self.model,
-            "input": clean_text,
-            "voice": target_voice,
-            "response_format": "wav",
-            "num_step": self.num_step,
-            "seed": self.seed,
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            f"{self.base_url}/v1/audio/speech",
-            data=payload,
-            headers={"Content-Type": "application/json"}
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if resp.status == 200:
-                    data = resp.read()
-                    with open(output_path, "wb") as f:
-                        f.write(data)
-                    return True
-        except Exception as exc:
-            print(f"[!] VoiceStudio TTS error on '{clean_text[:30]}...': {exc}")
-        return False
-
-
 class KokoroTTSEngine:
     def __init__(self, voice_name: str = "am_adam"):
         self.voice_name = voice_name
@@ -519,8 +431,7 @@ class KokoroTTSEngine:
 
 
 class VoiceEngine:
-    def __init__(self, voice_name: str = "am_adam", base_url: str = "http://127.0.0.1:3900", num_step: int = 8):
-        self.voicestudio = VoiceStudioTTSClient(base_url=base_url, voice_name=voice_name, num_step=num_step)
+    def __init__(self, voice_name: str = "am_adam"):
         self.kokoro = KokoroTTSEngine(voice_name=voice_name if self._is_kokoro_voice(voice_name) else "am_adam")
         self.neural_voice = voice_name
         self.system_voice = voice_name if not self._is_neural_voice(voice_name) else "Samantha"
@@ -553,7 +464,7 @@ class VoiceEngine:
 
     def is_available(self) -> bool:
         return (
-            (self.use_neural and (self.voicestudio.is_available() or self.kokoro.is_available()))
+            (self.use_neural and self.kokoro.is_available())
             or os.path.exists(self._say_bin)
         )
 
@@ -735,29 +646,6 @@ class VoiceEngine:
 
             if item is None:
                 break
-
-            if isinstance(item, tuple) and item[0] == "say":
-                _, fallback_text, v = item
-                clean = clean_for_speech(fallback_text)
-                if clean and os.path.exists(self._say_bin):
-                    target_v = self.system_voice if (not v or self._is_neural_voice(v)) else v
-                    try:
-                        proc = subprocess.Popen(
-                            [self._say_bin, "-v", target_v, clean],
-                            stdin=subprocess.DEVNULL,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
-                        with self._lock:
-                            self._current_process = proc
-                        while proc.poll() is None:
-                            if self._interrupt_event.is_set():
-                                proc.terminate()
-                                break
-                            time.sleep(0.04)
-                    except Exception as e:
-                        print(f"[!] say fallback error: {e}")
-                continue
 
             wav_path = item
             if not os.path.exists(wav_path):

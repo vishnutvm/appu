@@ -4,7 +4,7 @@ APPU — Personal AI Assistant
 Local assistant running on macOS with Ollama, Qwen, and Cybernetic HUD UI.
 """
 
-from datetime import datetime
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Callable, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -29,13 +30,11 @@ from reminders import (
     complete_reminder,
     create_reminder,
     fetch_and_claim_due_reminders,
-    get_due_reminders,
     list_reminders,
-    mark_reminder_notified,
     send_macos_notification,
 )
 from stt import LOCAL_STT
-from voice import VOICE, clean_for_speech
+from voice import KOKORO_VOICES, VOICE
 
 
 # Configuration
@@ -46,6 +45,8 @@ TIMEOUT_SECONDS = 120
 MAX_INPUT_LENGTH = 4_000
 MAX_TOOL_ROUNDS = 2
 MAX_TOOL_CALLS = 3
+# Spoken replies are kept short by the system prompt, not by truncation.
+NUM_PREDICT = 1024
 
 # Explicit registry: the model cannot supply arbitrary filesystem paths.
 PROJECTS = {
@@ -275,74 +276,75 @@ def open_project(project_name: str) -> str:
     return f"Opened the {project_name} project in VS Code."
 
 
-def execute_tool(name: str, arguments: dict) -> str:
+@dataclass
+class ToolOutcome:
+    ok: bool
+    text: str
+
+
+def run_tool(name: str, arguments: dict) -> ToolOutcome:
     """Dispatch only explicitly registered tools."""
 
     if name == "open_project":
         if not isinstance(arguments, dict):
-            return "Error: invalid tool arguments."
+            return ToolOutcome(False, "Error: invalid tool arguments.")
 
         project_name = arguments.get("project_name")
         if not isinstance(project_name, str):
-            return "Error: project_name must be a string."
+            return ToolOutcome(False, "Error: project_name must be a string.")
 
-        return open_project(project_name)
+        text = open_project(project_name)
+        return ToolOutcome(text.startswith("Opened"), text)
 
     elif name == "create_reminder":
         if not isinstance(arguments, dict):
-            return "Error: invalid tool arguments."
+            return ToolOutcome(False, "Error: invalid tool arguments.")
         title = arguments.get("title")
         due_time = arguments.get("due_time")
         if not isinstance(title, str) or not isinstance(due_time, str):
-            return "Error: title and due_time must be strings."
+            return ToolOutcome(False, "Error: title and due_time must be strings.")
         try:
             res = create_reminder(title, due_time)
-            return f"Scheduled: {res['message']}"
+            return ToolOutcome(True, f"Scheduled: {res['message']}")
         except Exception as exc:
-            return f"Error creating reminder: {exc}"
+            return ToolOutcome(False, f"Error creating reminder: {exc}")
 
     elif name == "list_reminders":
         if not isinstance(arguments, dict):
-            return "Error: invalid tool arguments."
+            return ToolOutcome(False, "Error: invalid tool arguments.")
         status = arguments.get("status", "pending")
         if status == "all":
             status = None
         elif status not in ("pending", "completed", "cancelled", None):
-            return "Error: status must be 'pending', 'completed', 'cancelled', or 'all'."
+            return ToolOutcome(False, "Error: status must be 'pending', 'completed', 'cancelled', or 'all'.")
         try:
             items = list_reminders(status=status)
             if not items:
-                return "No reminders found."
+                return ToolOutcome(True, "No reminders found.")
             lines = [f"#{r['id']} [{r['status'].upper()}] {r['title']} (due: {r['due_time']})" for r in items]
-            return "Reminders:\n" + "\n".join(lines)
+            return ToolOutcome(True, "Reminders:\n" + "\n".join(lines))
         except Exception as exc:
-            return f"Error listing reminders: {exc}"
+            return ToolOutcome(False, f"Error listing reminders: {exc}")
 
-    elif name == "cancel_reminder":
+    elif name in ("cancel_reminder", "complete_reminder"):
         if not isinstance(arguments, dict):
-            return "Error: invalid tool arguments."
+            return ToolOutcome(False, "Error: invalid tool arguments.")
         reminder_id = arguments.get("reminder_id")
-        if not isinstance(reminder_id, int):
-            return "Error: reminder_id must be an integer."
+        if not isinstance(reminder_id, int) or isinstance(reminder_id, bool):
+            return ToolOutcome(False, "Error: reminder_id must be an integer.")
+        action = cancel_reminder if name == "cancel_reminder" else complete_reminder
         try:
-            res = cancel_reminder(reminder_id)
-            return res["message"]
+            res = action(reminder_id)
+            return ToolOutcome(bool(res["success"]), res["message"])
         except Exception as exc:
-            return f"Error cancelling reminder: {exc}"
+            verb = "cancelling" if name == "cancel_reminder" else "completing"
+            return ToolOutcome(False, f"Error {verb} reminder: {exc}")
 
-    elif name == "complete_reminder":
-        if not isinstance(arguments, dict):
-            return "Error: invalid tool arguments."
-        reminder_id = arguments.get("reminder_id")
-        if not isinstance(reminder_id, int):
-            return "Error: reminder_id must be an integer."
-        try:
-            res = complete_reminder(reminder_id)
-            return res["message"]
-        except Exception as exc:
-            return f"Error completing reminder: {exc}"
+    return ToolOutcome(False, "Denied: this tool is not registered.")
 
-    return "Denied: this tool is not registered."
+
+def execute_tool(name: str, arguments: dict) -> str:
+    return run_tool(name, arguments).text
 
 
 def clean_terminal_text(text: str) -> str:
@@ -374,6 +376,7 @@ def ask_local_model(
     on_token: Optional[Callable[[str], None]] = None,
     on_tool_call: Optional[Callable[[], None]] = None,
     on_round_start: Optional[Callable[[int], None]] = None,
+    tool_events: Optional[list] = None,
 ) -> str:
     message = user_message.strip()
 
@@ -406,7 +409,7 @@ def ask_local_model(
             "keep_alive": "60m",
             "options": {
                 "temperature": 0.2,
-                "num_predict": 200,
+                "num_predict": NUM_PREDICT,
             },
         }
 
@@ -528,13 +531,15 @@ def ask_local_model(
             name = function["name"]
             arguments = function.get("arguments", {})
 
-            tool_result = execute_tool(name, arguments)
+            outcome = run_tool(name, arguments)
             seen_tool_calls.add(call_key)
             total_tool_calls += 1
+            if tool_events is not None:
+                tool_events.append({"name": name, "ok": outcome.ok, "text": outcome.text})
 
             messages.append({
                 "role": "tool",
-                "content": tool_result,
+                "content": outcome.text,
             })
 
     raise RuntimeError(
@@ -575,25 +580,22 @@ def start_reminder_daemon():
                     # 3. Spoken alert if voice is enabled
                     if VOICE.is_enabled():
                         VOICE.speak(f"Reminder alert: {title}")
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[!] Reminder daemon error: {exc}", file=sys.stderr)
             time.sleep(3)
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
 
 
-def analyze_intent_and_emotion(user_msg: str, answer: str) -> tuple[str, str]:
-    """Determine the emotion and activity state from interaction context."""
+def analyze_intent_and_emotion(user_msg: str, tool_events: list) -> tuple[str, str]:
+    """Determine the emotion and activity state from tool outcomes and the user's message."""
     lower_q = user_msg.lower()
-    lower_a = answer.lower()
 
-    if "denied" in lower_a or "error" in lower_a or "could not" in lower_a or "failure" in lower_a:
-        return ("empathetic", "error" if "error" in lower_a else "speaking")
-    elif "opened" in lower_a and "project" in lower_a:
-        return ("confident", "success")
-    elif "scheduled:" in lower_a or "reminder #" in lower_a:
-        return ("confident", "success")
+    if tool_events:
+        if all(event["ok"] for event in tool_events):
+            return ("confident", "success")
+        return ("empathetic", "error")
     elif any(w in lower_q for w in ["not sure", "which", "clarify", "ambiguous", "mean?", "what do you mean"]):
         return ("confused", "needs_clarification")
     elif any(w in lower_q for w in ["great", "awesome", "perfect", "good job", "love it", "yay", "milestone", "congrats"]):
@@ -670,8 +672,6 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
             data = {
                 "online": online,
                 "model": MODEL,
-                "project": "appu",
-                "project_path": "~/Developer/appu",
                 "activity": "idle" if online else "offline",
                 "activity_label": ACTIVITY_LABELS.get("idle" if online else "offline"),
                 "voice_enabled": VOICE.is_enabled(),
@@ -701,11 +701,8 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/api/voice/voices":
             kokoro_voices = [
-                {"id": "am_adam", "voice_id": "am_adam", "name": "Adam (Kokoro American Male)", "engine": "kokoro"},
-                {"id": "af_bella", "voice_id": "af_bella", "name": "Bella (Kokoro American Female)", "engine": "kokoro"},
-                {"id": "af_sarah", "voice_id": "af_sarah", "name": "Sarah (Kokoro American Female)", "engine": "kokoro"},
-                {"id": "bm_george", "voice_id": "bm_george", "name": "George (Kokoro British Male)", "engine": "kokoro"},
-                {"id": "bf_emma", "voice_id": "bf_emma", "name": "Emma (Kokoro British Female)", "engine": "kokoro"},
+                {"id": voice_id, "voice_id": voice_id, "name": name, "engine": "kokoro"}
+                for voice_id, name in KOKORO_VOICES.items()
             ]
             self._send_json({
                 "voices": kokoro_voices,
@@ -752,18 +749,20 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
                             voice_session.cancel()
                         voice_session = VOICE.start_streaming_session()
 
+                tool_events = []
                 answer = ask_local_model(
                     user_msg,
                     on_token=on_token_cb,
                     on_tool_call=on_tool_call_cb,
                     on_round_start=on_round_start_cb,
+                    tool_events=tool_events,
                 )
 
                 if voice_session:
                     voice_session.finish_text()
 
-                executed_tool = ("opened" in answer.lower() and "project" in answer.lower()) or ("scheduled:" in answer.lower())
-                emotion, activity = analyze_intent_and_emotion(user_msg, answer)
+                executed_tool = any(event["ok"] for event in tool_events)
+                emotion, activity = analyze_intent_and_emotion(user_msg, tool_events)
 
                 res_data = {
                     "answer": answer,
@@ -817,8 +816,14 @@ class AppuHTTPRequestHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/api/voice/select":
             content_len = int(self.headers.get("Content-Length", 0))
-            payload = json.loads(self.rfile.read(content_len).decode("utf-8")) if content_len > 0 else {}
-            chosen_voice = payload.get("voice", "am_adam")
+            try:
+                payload = json.loads(self.rfile.read(content_len).decode("utf-8")) if content_len > 0 else {}
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                payload = None
+            chosen_voice = payload.get("voice") if isinstance(payload, dict) else None
+            if chosen_voice not in KOKORO_VOICES:
+                self._send_json({"success": False, "error": "Unknown voice."}, status=400)
+                return
             VOICE.neural_voice = chosen_voice
             VOICE.kokoro.voice_name = chosen_voice
             self._send_json({"active_voice": chosen_voice, "success": True})

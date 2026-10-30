@@ -38,7 +38,7 @@ Below is the approved definition file:
     <!-- Program Execution (Isolated Python Background Daemon Mode) -->
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/homebrew/bin/python3</string>
+        <string>/Users/vishnu/Developer/jarvis/.venv/bin/python3</string>
         <string>/Users/vishnu/Developer/jarvis/appu.py</string>
         <string>--daemon</string>
     </array>
@@ -56,9 +56,9 @@ Below is the approved definition file:
 
     <!-- Standard logging locations for transparency -->
     <key>StandardOutPath</key>
-    <string>/Users/vishnu/Developer/jarvis/data/logs/appu.stdout.log</string>
+    <string>/Users/vishnu/Library/Logs/appu.stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/vishnu/Developer/jarvis/data/logs/appu.stderr.log</string>
+    <string>/Users/vishnu/Library/Logs/appu.stderr.log</string>
 
     <!-- Resource Limits: Mac Mini M4 Safety Bounds -->
     <key>SoftResourceLimits</key>
@@ -98,13 +98,10 @@ The user retains complete, exclusive control over installation, startup, and rem
 
 ### To Install & Activate:
 ```bash
-# 1. Create logs directory
-mkdir -p ~/Developer/jarvis/data/logs
-
-# 2. Copy plist to user LaunchAgents directory
+# 1. Copy plist to user LaunchAgents directory
 cp docs/com.appu.assistant.plist ~/Library/LaunchAgents/
 
-# 3. Load the service into launchd
+# 2. Load the service into launchd
 launchctl load ~/Library/LaunchAgents/com.appu.assistant.plist
 ```
 

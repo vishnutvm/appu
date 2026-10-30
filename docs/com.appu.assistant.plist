@@ -6,7 +6,7 @@
     <string>com.appu.assistant</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/homebrew/bin/python3</string>
+        <string>/Users/vishnu/Developer/jarvis/.venv/bin/python3</string>
         <string>/Users/vishnu/Developer/jarvis/appu.py</string>
         <string>--daemon</string>
     </array>
@@ -17,9 +17,9 @@
     <key>KeepAlive</key>
     <false/>
     <key>StandardOutPath</key>
-    <string>/Users/vishnu/Developer/jarvis/data/logs/appu.stdout.log</string>
+    <string>/Users/vishnu/Library/Logs/appu.stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/vishnu/Developer/jarvis/data/logs/appu.stderr.log</string>
+    <string>/Users/vishnu/Library/Logs/appu.stderr.log</string>
     <key>SoftResourceLimits</key>
     <dict>
         <key>NumberOfFiles</key>

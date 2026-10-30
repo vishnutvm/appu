@@ -127,7 +127,7 @@ class ToolSecurityTests(unittest.TestCase):
         ]
         with (
             patch("appu.urlopen", side_effect=responses),
-            patch("appu.execute_tool", return_value="Opened") as mock_tool,
+            patch("appu.run_tool", return_value=appu.ToolOutcome(True, "Opened")) as mock_tool,
         ):
             with self.assertRaisesRegex(RuntimeError, "repeated"):
                 appu.ask_local_model("Open the JARVIS project")
@@ -147,7 +147,7 @@ class ToolSecurityTests(unittest.TestCase):
                 "appu.urlopen",
                 return_value=FakeOllamaResponse(message),
             ),
-            patch("appu.execute_tool") as mock_tool,
+            patch("appu.run_tool") as mock_tool,
         ):
             with self.assertRaisesRegex(RuntimeError, "limit"):
                 appu.ask_local_model("Open the JARVIS project")

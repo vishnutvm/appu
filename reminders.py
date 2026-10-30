@@ -4,12 +4,10 @@ Provides persistent storage, due-time calculation, and background notification t
 """
 
 from datetime import datetime, timedelta
-import os
 from pathlib import Path
 import re
 import sqlite3
 import subprocess
-import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -260,6 +258,11 @@ def cancel_reminder(reminder_id: int, db_path: Optional[Path] = None) -> Dict[st
         row = cursor.fetchone()
         if not row:
             return {"success": False, "message": f"Reminder #{reminder_id} not found."}
+        if row[2] not in ("pending", "notified"):
+            return {
+                "success": False,
+                "message": f"Reminder #{reminder_id} is already {row[2]} and cannot be cancelled.",
+            }
 
         cursor.execute("UPDATE reminders SET status = 'cancelled' WHERE id = ?", (reminder_id,))
         conn.commit()
@@ -330,51 +333,6 @@ def fetch_and_claim_due_reminders(current_time: Optional[float] = None, db_path:
     except Exception:
         conn.rollback()
         raise
-    finally:
-        conn.close()
-
-
-def get_due_reminders(current_time: Optional[float] = None, db_path: Optional[Path] = None) -> List[Dict[str, Any]]:
-    """Return pending reminders whose due time has arrived (backward compatible read-only inspection)."""
-    now = current_time if current_time is not None else time.time()
-    init_db(db_path)
-
-    conn = _get_connection(db_path)
-    try:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT * FROM reminders
-            WHERE status = 'pending' AND notified = 0 AND due_timestamp <= ?
-            ORDER BY due_timestamp ASC
-            """,
-            (now,),
-        )
-        rows = cursor.fetchall()
-        return [
-            {
-                "id": row["id"],
-                "title": row["title"],
-                "due_time": row["due_time_str"],
-                "due_timestamp": row["due_timestamp"],
-                "status": row["status"],
-            }
-            for row in rows
-        ]
-    finally:
-        conn.close()
-
-
-def mark_reminder_notified(reminder_id: int, db_path: Optional[Path] = None) -> None:
-    """Mark a reminder as notified."""
-    init_db(db_path)
-
-    conn = _get_connection(db_path)
-    try:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE reminders SET notified = 1, status = 'notified' WHERE id = ?", (reminder_id,))
-        conn.commit()
     finally:
         conn.close()
 

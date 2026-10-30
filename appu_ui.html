@@ -1362,6 +1362,7 @@ I can also open your registered Appu project in Visual Studio Code.</div>
     let isRecording = false;
     let vadEnabled = false;
     let hasSpokenInSession = false;
+    let userSpeaking = false;
     let lastSpeechTimestamp = 0;
     let vadCheckInterval = null;
 
@@ -1442,11 +1443,16 @@ I can also open your registered Appu project in Visual Studio Code.</div>
           }
           const rms = Math.sqrt(sum / inputData.length);
 
-          // Barge-in: if user starts speaking (RMS > 0.025), interrupt any active Appu speech
+          // Barge-in: interrupt Appu once when the user starts speaking, not on every frame
           if (rms > 0.025) {
+            if (!userSpeaking) {
+              userSpeaking = true;
+              fetch('/api/voice/stop', { method: 'POST' }).catch(() => {});
+            }
             hasSpokenInSession = true;
             lastSpeechTimestamp = Date.now();
-            fetch('/api/voice/stop', { method: 'POST' }).catch(() => {});
+          } else if (userSpeaking && Date.now() - lastSpeechTimestamp > 400) {
+            userSpeaking = false;
           }
         };
         return true;
@@ -1482,6 +1488,7 @@ I can also open your registered Appu project in Visual Studio Code.</div>
 
       audioSamples = [];
       hasSpokenInSession = false;
+      userSpeaking = false;
       lastSpeechTimestamp = Date.now();
       isRecording = true;
 

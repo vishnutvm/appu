@@ -45,6 +45,24 @@ class TestAppuIntegration(unittest.TestCase):
             comp_result = appu.execute_tool("complete_reminder", {"reminder_id": res["id"]})
             self.assertIn("Marked reminder", comp_result)
 
+    def test_run_tool_reports_failure_for_missing_reminder(self):
+        with patch("reminders.get_db_path", return_value=self.db_path):
+            outcome = appu.run_tool("complete_reminder", {"reminder_id": 9999})
+        self.assertFalse(outcome.ok)
+        self.assertIn("not found", outcome.text)
+
+    def test_emotion_comes_from_tool_outcomes_not_answer_text(self):
+        self.assertEqual(
+            appu.analyze_intent_and_emotion("set it", [{"name": "x", "ok": True, "text": ""}]),
+            ("confident", "success"),
+        )
+        self.assertEqual(
+            appu.analyze_intent_and_emotion("set it", [{"name": "x", "ok": False, "text": ""}]),
+            ("empathetic", "error"),
+        )
+        # Mentioning "error" in a chat reply no longer flips the state.
+        self.assertEqual(appu.analyze_intent_and_emotion("hello", []), ("happy", "speaking"))
+
     def test_appu_execute_tool_invalid_args_rejected(self):
         result = appu.execute_tool("create_reminder", "invalid-args")
         self.assertIn("Error:", result)
@@ -75,9 +93,15 @@ class TestAppuIntegration(unittest.TestCase):
         mock_urlopen.return_value.__enter__.side_effect = [resp0, resp1]
 
         tokens = []
+        tool_events = []
         with patch("reminders.get_db_path", return_value=self.db_path):
-            ans = appu.ask_local_model("Backup db in 5 minutes", on_token=tokens.append)
+            ans = appu.ask_local_model(
+                "Backup db in 5 minutes", on_token=tokens.append, tool_events=tool_events
+            )
 
+        self.assertEqual(len(tool_events), 1)
+        self.assertEqual(tool_events[0]["name"], "create_reminder")
+        self.assertTrue(tool_events[0]["ok"])
         self.assertIn("I have scheduled the backup reminder.", ans)
         self.assertIn("Planning reminder...", tokens)
         self.assertIn("I have scheduled the backup reminder.", tokens)

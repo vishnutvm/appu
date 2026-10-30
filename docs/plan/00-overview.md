@@ -40,27 +40,27 @@ Each file has a checklist. Do one file at a time, run the tests, then move on.
 
 ## Known bugs and quick fixes (do these first, ~1 hour)
 
-- [ ] `appu.py` uses `Optional` and `Callable` without importing them. Works only
+- [x] `appu.py` uses `Optional` and `Callable` without importing them. Works only
       because Python 3.14 evaluates annotations lazily. Add
       `from typing import Callable, Optional`.
-- [ ] `num_predict: 200` in `ask_local_model` truncates longer answers. Raise it
+- [x] `num_predict: 200` in `ask_local_model` truncates longer answers. Raise it
       for text replies (e.g. 1024) and keep spoken replies short via the prompt.
-- [ ] `cancel_reminder` cancels reminders that are already completed. Only allow
+- [x] `cancel_reminder` cancels reminders that are already completed. Only allow
       `pending` / `notified`.
-- [ ] `/api/voice/select` accepts any voice string. Validate against the Kokoro
+- [x] `/api/voice/select` accepts any voice string. Validate against the Kokoro
       voice list.
-- [ ] The UI sends `/api/voice/stop` on every audio frame above the volume
+- [x] The UI sends `/api/voice/stop` on every audio frame above the volume
       threshold. Send it once per speech start.
-- [ ] Module docstrings in `voice.py` say VoiceStudio is the main TTS. It is
+- [x] Module docstrings in `voice.py` say VoiceStudio is the main TTS. It is
       never used to synthesise speech (only in an `is_available` check). Either
       wire it up or remove `VoiceStudioTTSClient`.
-- [ ] Remove dead code: `get_due_reminders`, `mark_reminder_notified`,
+- [x] Remove dead code: `get_due_reminders`, `mark_reminder_notified`,
       `clean_for_speech` import in `appu.py`, `VoiceEngine._audio_queue` "say"
       tuple branch (never queued).
-- [ ] `/api/status` hard-codes `project: appu`. Return real data or drop it.
-- [ ] Emotion and "tool executed" are guessed by searching answer text
+- [x] `/api/status` hard-codes `project: appu`. Return real data or drop it.
+- [x] Emotion and "tool executed" are guessed by searching answer text
       (`"opened" in answer`). Return them from the tool loop instead.
-- [ ] `docs/com.appu.assistant.plist` logs to `data/logs/`, which does not exist.
-- [ ] No git commits yet. Before the first commit, add `data/` and `models/` to
+- [x] `docs/com.appu.assistant.plist` logs to `data/logs/`, which does not exist.
+- [x] No git commits yet. Before the first commit, add `data/` and `models/` to
       `.gitignore` — otherwise your reminders DB and the ~330 MB Kokoro model
       files get committed. Then commit before starting any phase.
