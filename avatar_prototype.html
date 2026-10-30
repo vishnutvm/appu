@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Appu AI — 3D Character Prototype</title>
+  
+  <style>
+    :root {
+      --bg: #02070e;
+      --card-bg: rgba(6, 22, 38, 0.75);
+      --border-cyan: rgba(0, 229, 255, 0.35);
+      --neon-cyan: #00e5ff;
+      --neon-blue: #0088ff;
+      --neon-green: #00ff88;
+      --neon-purple: #c040ff;
+      --text-main: #e2f1fd;
+      --text-dim: #7da5c4;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SF Pro", monospace;
+    }
+
+    body {
+      background-color: var(--bg);
+      background-image: radial-gradient(circle at 50% 30%, #061e38 0%, #02070e 80%);
+      color: var(--text-main);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* 3D Canvas Viewport */
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* HUD Layer */
+    .hud-layer {
+      position: relative;
+      z-index: 10;
+      pointer-events: none;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 24px 32px;
+    }
+
+    .interactive {
+      pointer-events: auto;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      width: 44px;
+      height: 44px;
+      border: 1px solid var(--border-cyan);
+      border-radius: 8px;
+      background: rgba(0, 229, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.2);
+      font-size: 20px;
+    }
+
+    .brand-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      color: var(--neon-cyan);
+      text-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+    }
+
+    .brand-subtitle {
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .cyber-btn {
+      background: var(--card-bg);
+      border: 1px solid var(--border-cyan);
+      color: var(--neon-cyan);
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+    }
+
+    .cyber-btn:hover {
+      background: rgba(0, 229, 255, 0.15);
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.35);
+      transform: translateY(-1px);
+    }
+
+    .cyber-btn.active {
+      background: rgba(0, 229, 255, 0.25);
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.5);
+    }
+
+    /* Main HUD Panels Layout */
+    .hud-main {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex: 1;
+      margin: 20px 0;
+    }
+
+    .hud-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-cyan);
+      border-radius: 10px;
+      padding: 16px 20px;
+      width: 280px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .card-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: var(--neon-cyan);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(0, 229, 255, 0.15);
+      padding-bottom: 6px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--neon-green);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--neon-green);
+      box-shadow: 0 0 8px var(--neon-green);
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    .control-group {
+      margin-bottom: 12px;
+    }
+
+    .control-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .grid-btns {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .btn-small {
+      padding: 6px 10px;
+      font-size: 11px;
+      letter-spacing: 1px;
+    }
+
+    /* Bottom Control Bar */
+    .hud-bottom {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    .speech-box {
+      background: var(--card-bg);
+      border: 1px solid var(--border-cyan);
+      border-radius: 10px;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 600px;
+      max-width: 90vw;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .speech-input {
+      flex: 1;
+      background: rgba(0, 229, 255, 0.05);
+      border: 1px solid rgba(0, 229, 255, 0.2);
+      border-radius: 6px;
+      padding: 8px 14px;
+      color: var(--text-main);
+      font-size: 13px;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    .speech-input:focus {
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.25);
+    }
+
+    /* Loading Overlay */
+    #loading-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #02070e;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      transition: opacity 0.6s ease;
+    }
+
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 3px solid rgba(0, 229, 255, 0.1);
+      border-top-color: var(--neon-cyan);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      font-size: 14px;
+      letter-spacing: 3px;
+      color: var(--neon-cyan);
+      text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+    }
+
+    .loading-subtext {
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 1px;
+    }
+  </style>
+
+  <!-- Three.js and @pixiv/three-vrm ES Modules Map -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+        "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.3.4/lib/three-vrm.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <!-- Loading Screen -->
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div class="loading-text">INITIALIZING 3D AI COMPANION</div>
+    <div class="loading-subtext">Compiling Three.js shaders & streaming VRM avatar...</div>
+  </div>
+
+  <!-- 3D Viewport Canvas Container -->
+  <div id="canvas-container"></div>
+
+  <!-- HUD Overlay Layer -->
+  <div class="hud-layer">
+    
+    <!-- Top Bar -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-logo">👩</div>
+        <div>
+          <div class="brand-title">APPU 3D COMPANION</div>
+          <div class="brand-subtitle">FEMALE AI AVATAR • PROTOTYPE V1.0</div>
+        </div>
+      </div>
+      <div class="header-actions interactive">
+        <a href="/" class="cyber-btn" title="Back to Appu Main UI">
+          <span>⚡ RETURN TO MAIN APPU</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Side HUD Panels -->
+    <main class="hud-main">
+      
+      <!-- Left Panel: State & Expressions -->
+      <div class="hud-card interactive">
+        <div class="card-title">
+          <span>EXPRESSION & EMOTION</span>
+          <span class="status-badge">
+            <span class="status-dot"></span>
+            <span id="active-state-label">HAPPY</span>
+          </span>
+        </div>
+
+        <div class="control-group">
+          <span class="control-label">FACIAL PRESETS</span>
+          <div class="grid-btns">
+            <button class="cyber-btn btn-small" onclick="setAvatarEmotion('happy')">😊 Happy</button>
+            <button class="cyber-btn btn-small" onclick="setAvatarEmotion('neutral')">😐 Neutral</button>
+            <button class="cyber-btn btn-small" onclick="setAvatarEmotion('surprised')">😲 Surprised</button>
+            <button class="cyber-btn btn-small" onclick="setAvatarEmotion('sad')">🥺 Shy/Sad</button>
+            <button class="cyber-btn btn-small" onclick="setAvatarEmotion('relaxed')">😌 Relaxed</button>
+            <button class="cyber-btn btn-small" onclick="triggerWink()">😉 Wink</button>
+          </div>
+        </div>
+
+        <div class="control-group" style="margin-top: 14px;">
+          <span class="control-label">INTERACTION MODES</span>
+          <div class="grid-btns">
+            <button class="cyber-btn btn-small active" id="btn-lookat" onclick="toggleLookAt()">👀 Eye Tracking</button>
+            <button class="cyber-btn btn-small active" id="btn-blink" onclick="toggleBlink()">✨ Auto-Blink</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Panel: Camera & Speech Controls -->
+      <div class="hud-card interactive">
+        <div class="card-title">
+          <span>CAMERA & VIEW</span>
+          <span style="font-size: 10px; color: var(--text-dim);">ORBIT CONTROLS</span>
+        </div>
+
+        <div class="control-group">
+          <span class="control-label">FRAMING PRESETS</span>
+          <div class="grid-btns">
+            <button class="cyber-btn btn-small" onclick="setCameraView('bust')">Upper Body</button>
+            <button class="cyber-btn btn-small" onclick="setCameraView('face')">Close Face</button>
+            <button class="cyber-btn btn-small" onclick="setCameraView('full')">Full View</button>
+            <button class="cyber-btn btn-small" onclick="resetCamera()">Reset</button>
+          </div>
+        </div>
+
+        <div class="control-group" style="margin-top: 14px;">
+          <span class="control-label">LIP-SYNC & SPEECH TEST</span>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <button class="cyber-btn btn-small" id="btn-talk-sim" onclick="toggleSpeechSimulation()">
+              <span id="talk-icon">💬</span> <span id="talk-label">Simulate Speaking</span>
+            </button>
+            <button class="cyber-btn btn-small" onclick="speakPreset('Hello! I am Appu, your personal AI assistant. How can I help you today?')">
+              <span>🎙️ Quick Intro Greeting</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- Bottom Action Bar: Custom Speech & Lip Sync -->
+    <footer class="hud-bottom">
+      <div class="speech-box interactive">
+        <input 
+          type="text" 
+          id="custom-speech-input" 
+          class="speech-input" 
+          placeholder="Type message to test AI speech & real-time lip-sync..." 
+          value="I am online and ready to assist you!"
+        />
+        <button class="cyber-btn" onclick="speakCustomText()">
+          <span>🔊 SPEAK</span>
+        </button>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Main 3D Three.js & VRM Logic -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+    // Global handles
+    let scene, camera, renderer, controls;
+    let currentVrm = null;
+    let clock = new THREE.Clock();
+
+    // Interaction states
+    let lookAtTarget = new THREE.Vector3(0, 1.4, 1.5);
+    let mousePos = { x: 0, y: 0 };
+    let enableLookAt = true;
+    let enableBlink = true;
+    let isSpeaking = false;
+    let activeEmotion = 'happy';
+
+    // Blinking timers
+    let nextBlinkTime = 2.0;
+    let blinkDuration = 0.12;
+    let blinkTimer = 0;
+    let isBlinking = false;
+
+    // Speech simulation timers & viseme weights
+    let speechTimer = 0;
+    let currentViseme = 'aa';
+    const visemes = ['aa', 'ih', 'ou', 'ee', 'oh'];
+
+    // DOM Elements
+    const container = document.getElementById('canvas-container');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const activeStateLabel = document.getElementById('active-state-label');
+    const btnTalkSim = document.getElementById('btn-talk-sim');
+    const talkIcon = document.getElementById('talk-icon');
+    const talkLabel = document.getElementById('talk-label');
+
+    // 1. Initialize Scene, Lights, Camera
+    function init() {
+      // Scene
+      scene = new THREE.Scene();
+
+      // Camera
+      camera = new THREE.PerspectiveCamera(32, window.innerWidth / window.innerHeight, 0.1, 20.0);
+      camera.position.set(0.0, 1.35, 1.6); // Default upper body portrait
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.1;
+      container.appendChild(renderer.domElement);
+
+      // Controls
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.set(0, 1.3, 0);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.minDistance = 0.5;
+      controls.maxDistance = 4.0;
+      controls.maxPolarAngle = Math.PI / 2 + 0.1;
+
+      // Lights tailored for Cyberpunk aesthetic
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+      scene.add(ambientLight);
+
+      // Key light: crisp cyan
+      const keyLight = new THREE.DirectionalLight(0x00e5ff, 1.4);
+      keyLight.position.set(1.5, 2.5, 2.0);
+      scene.add(keyLight);
+
+      // Fill light: soft purple/magenta
+      const fillLight = new THREE.DirectionalLight(0xc040ff, 0.8);
+      fillLight.position.set(-1.8, 1.5, 1.5);
+      scene.add(fillLight);
+
+      // Rim light: deep electric blue behind character
+      const rimLight = new THREE.DirectionalLight(0x0088ff, 2.2);
+      rimLight.position.set(0.0, 2.0, -2.5);
+      scene.add(rimLight);
+
+      // Window resize
+      window.addEventListener('resize', onWindowResize);
+
+      // Mouse tracking for LookAt gaze
+      window.addEventListener('mousemove', onMouseMove);
+
+      // Load VRM Avatar
+      loadAvatar('/models/avatar/avatar.vrm');
+
+      // Start render loop
+      animate();
+    }
+
+    // 2. Load VRM Model
+    function loadAvatar(url) {
+      const loader = new GLTFLoader();
+      loader.register((parser) => new VRMLoaderPlugin(parser));
+
+      loader.load(
+        url,
+        (gltf) => {
+          const vrm = gltf.userData.vrm;
+          if (!vrm) {
+            console.error('No VRM instance found in model.');
+            return;
+          }
+
+          // VRM 0.x models face -Z and require a 180° rotation
+          VRMUtils.rotateVRM0(vrm);
+
+          currentVrm = vrm;
+          scene.add(vrm.scene);
+
+          // Disable frustum culling so hair and body don't clip when moving camera
+          vrm.scene.traverse((obj) => {
+            obj.frustumCulled = false;
+          });
+
+          // Set default relaxed posture
+          relaxArms(vrm);
+
+          // Initialize with happy emotion
+          setEmotion('happy');
+
+          // Fade out loading screen
+          setTimeout(() => {
+            loadingOverlay.style.opacity = '0';
+            setTimeout(() => {
+              loadingOverlay.style.display = 'none';
+            }, 600);
+          }, 300);
+        },
+        (progress) => {
+          // Progress feedback
+        },
+        (error) => {
+          console.error('Error loading VRM:', error);
+          loadingOverlay.innerHTML = `
+            <div style="color: #ff4060; font-size: 16px; font-weight: bold;">FAILED TO LOAD 3D AVATAR</div>
+            <div style="color: #7da5c4; font-size: 12px; margin-top: 8px;">${error.message}</div>
+          `;
+        }
+      );
+    }
+
+    // Gentle arm relaxation so the character doesn't stay in a rigid T-pose / A-pose
+    function relaxArms(vrm) {
+      if (!vrm.humanoid) return;
+      const leftUpperArm = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
+      const rightUpperArm = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
+      const leftLowerArm = vrm.humanoid.getNormalizedBoneNode('leftLowerArm');
+      const rightLowerArm = vrm.humanoid.getNormalizedBoneNode('rightLowerArm');
+
+      if (leftUpperArm) leftUpperArm.rotation.z = THREE.MathUtils.degToRad(-65);
+      if (rightUpperArm) rightUpperArm.rotation.z = THREE.MathUtils.degToRad(65);
+      if (leftLowerArm) leftLowerArm.rotation.y = THREE.MathUtils.degToRad(-20);
+      if (rightLowerArm) rightLowerArm.rotation.y = THREE.MathUtils.degToRad(20);
+    }
+
+    // Mouse movement to LookAt vector
+    function onMouseMove(event) {
+      mousePos.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mousePos.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+      // Map to 3D coordinate target in front of character's head
+      lookAtTarget.x = mousePos.x * 0.8;
+      lookAtTarget.y = 1.35 + mousePos.y * 0.4;
+      lookAtTarget.z = 1.8;
+    }
+
+    // Set Facial Emotion Blendshape
+    function setEmotion(emotionName) {
+      if (!currentVrm || !currentVrm.expressionManager) return;
+      activeEmotion = emotionName;
+      if (activeStateLabel) activeStateLabel.textContent = emotionName.toUpperCase();
+
+      const em = currentVrm.expressionManager;
+      const presets = ['happy', 'neutral', 'surprised', 'sad', 'relaxed', 'angry'];
+
+      // Reset emotions to 0
+      presets.forEach((p) => {
+        try { em.setValue(p, 0); } catch (e) {}
+      });
+
+      // Apply chosen emotion
+      try {
+        if (emotionName !== 'neutral') {
+          em.setValue(emotionName, 1.0);
+        }
+      } catch (e) {
+        console.warn('Could not set expression:', emotionName);
+      }
+    }
+
+    // Animation & Render Loop
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
+
+      if (currentVrm) {
+        // 1. Procedural Breathing (subtle chest/spine oscillation)
+        const spine = currentVrm.humanoid?.getNormalizedBoneNode('spine');
+        if (spine) {
+          spine.rotation.x = Math.sin(time * 1.8) * 0.02;
+        }
+
+        // 2. Head & Eye Tracking (LookAt with smooth damping)
+        if (enableLookAt && currentVrm.lookAt) {
+          const head = currentVrm.humanoid?.getNormalizedBoneNode('head');
+          if (head) {
+            // Smoothly interpolate head rotation towards cursor
+            head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, -mousePos.x * 0.35, 0.08);
+            head.rotation.x = THREE.MathUtils.lerp(head.rotation.x, -mousePos.y * 0.25, 0.08);
+          }
+        }
+
+        // 3. Procedural Natural Blinking
+        if (enableBlink && currentVrm.expressionManager) {
+          blinkTimer += delta;
+          if (!isBlinking && blinkTimer >= nextBlinkTime) {
+            isBlinking = true;
+            blinkTimer = 0;
+          }
+
+          if (isBlinking) {
+            const blinkWeight = Math.sin((blinkTimer / blinkDuration) * Math.PI);
+            currentVrm.expressionManager.setValue('blink', Math.max(0, Math.min(1, blinkWeight)));
+
+            if (blinkTimer >= blinkDuration) {
+              currentVrm.expressionManager.setValue('blink', 0);
+              isBlinking = false;
+              blinkTimer = 0;
+              nextBlinkTime = 2.5 + Math.random() * 3.0; // Random interval between blinks
+            }
+          }
+        }
+
+        // 4. Lip Sync & Speaking Motion
+        if (isSpeaking && currentVrm.expressionManager) {
+          speechTimer += delta;
+          if (speechTimer > 0.12) {
+            speechTimer = 0;
+            currentViseme = visemes[Math.floor(Math.random() * visemes.length)];
+          }
+
+          // Oscillate mouth open / closed with speech cadence
+          const mouthOpen = 0.3 + 0.6 * Math.abs(Math.sin(time * 14));
+          visemes.forEach((v) => {
+            currentVrm.expressionManager.setValue(v, v === currentViseme ? mouthOpen : 0);
+          });
+        } else if (!isSpeaking && currentVrm.expressionManager) {
+          visemes.forEach((v) => {
+            currentVrm.expressionManager.setValue(v, 0);
+          });
+        }
+
+        // Update VRM internal states & physics
+        currentVrm.update(delta);
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Exposure for window/HTML buttons
+    window.setAvatarEmotion = (name) => setEmotion(name);
+
+    window.triggerWink = () => {
+      if (!currentVrm || !currentVrm.expressionManager) return;
+      const em = currentVrm.expressionManager;
+      em.setValue('blinkLeft', 1.0);
+      setEmotion('happy');
+      setTimeout(() => {
+        em.setValue('blinkLeft', 0.0);
+      }, 350);
+    };
+
+    window.toggleLookAt = () => {
+      enableLookAt = !enableLookAt;
+      document.getElementById('btn-lookat').classList.toggle('active', enableLookAt);
+    };
+
+    window.toggleBlink = () => {
+      enableBlink = !enableBlink;
+      document.getElementById('btn-blink').classList.toggle('active', enableBlink);
+    };
+
+    window.setCameraView = (type) => {
+      if (type === 'face') {
+        gsapCameraTo(0, 1.45, 0.75, 0, 1.42, 0);
+      } else if (type === 'bust') {
+        gsapCameraTo(0, 1.35, 1.6, 0, 1.3, 0);
+      } else if (type === 'full') {
+        gsapCameraTo(0, 1.0, 3.2, 0, 0.9, 0);
+      }
+    };
+
+    window.resetCamera = () => {
+      gsapCameraTo(0, 1.35, 1.6, 0, 1.3, 0);
+    };
+
+    function gsapCameraTo(px, py, pz, tx, ty, tz) {
+      camera.position.set(px, py, pz);
+      controls.target.set(tx, ty, tz);
+      controls.update();
+    }
+
+    window.toggleSpeechSimulation = () => {
+      isSpeaking = !isSpeaking;
+      if (isSpeaking) {
+        btnTalkSim.classList.add('active');
+        talkIcon.textContent = '🔊';
+        talkLabel.textContent = 'Stop Speaking';
+        setEmotion('happy');
+      } else {
+        btnTalkSim.classList.remove('active');
+        talkIcon.textContent = '💬';
+        talkLabel.textContent = 'Simulate Speaking';
+      }
+    };
+
+    // Speech with Web Speech Synthesis & Lip Sync
+    window.speakPreset = (text) => {
+      const input = document.getElementById('custom-speech-input');
+      input.value = text;
+      window.speakCustomText();
+    };
+
+    window.speakCustomText = () => {
+      const text = document.getElementById('custom-speech-input').value.trim();
+      if (!text) return;
+
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        
+        // Pick female voice if available
+        const voices = window.speechSynthesis.getVoices();
+        const femaleVoice = voices.find(v => 
+          v.name.includes('Samantha') || 
+          v.name.includes('Victoria') || 
+          v.name.includes('Karen') || 
+          v.name.includes('Female')
+        );
+        if (femaleVoice) utterance.voice = femaleVoice;
+        utterance.rate = 1.05;
+        utterance.pitch = 1.15;
+
+        utterance.onstart = () => {
+          isSpeaking = true;
+          setEmotion('happy');
+          btnTalkSim.classList.add('active');
+        };
+
+        utterance.onend = () => {
+          isSpeaking = false;
+          btnTalkSim.classList.remove('active');
+          talkIcon.textContent = '💬';
+          talkLabel.textContent = 'Simulate Speaking';
+        };
+
+        utterance.onerror = () => {
+          isSpeaking = false;
+          btnTalkSim.classList.remove('active');
+        };
+
+        window.speechSynthesis.speak(utterance);
+      } else {
+        // Fallback simulation
+        window.toggleSpeechSimulation();
+        setTimeout(() => {
+          if (isSpeaking) window.toggleSpeechSimulation();
+        }, 4000);
+      }
+    };
+
+    // Initialize Web Speech voices
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
+
+    // Launch scene
+    init();
+  </script>
+</body>
+</html>
