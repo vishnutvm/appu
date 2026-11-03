@@ -50,14 +50,18 @@ jobs:
         working-directory: ./appu-3d
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Apple Developer Code Signing Certificate (Base64 .p12)
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          # Apple Notarization Credentials (notarytool)
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          if [ -n "$MAC_CSC_LINK" ]; then
+            export CSC_LINK="$MAC_CSC_LINK"
+            export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD"
+          else
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
           npx electron-builder --mac dmg zip --publish always
 
       - name: Upload macOS Artifacts
@@ -100,10 +104,16 @@ jobs:
         working-directory: ./appu-3d
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Windows Code Signing Certificate (Base64 .pfx)
-          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        shell: bash
         run: |
+          if [ -n "$WIN_CSC_LINK" ]; then
+            export CSC_LINK="$WIN_CSC_LINK"
+            export CSC_KEY_PASSWORD="$WIN_CSC_KEY_PASSWORD"
+          else
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
           npx electron-builder --win nsis --publish always
 
       - name: Upload Windows Artifacts
