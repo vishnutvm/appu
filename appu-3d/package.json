@@ -1,0 +1,60 @@
+{
+  "name": "appu",
+  "productName": "Appu",
+  "version": "1.0.0",
+  "description": "Appu - Cross-platform AI desktop companion and assistant",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "build:electron": "tsc -p tsconfig.electron.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type: 'commonjs'}))\"",
+    "build:all": "npm run build && npm run build:electron",
+    "desktop": "npm run build:electron && electron .",
+    "start": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && npm run desktop\"",
+    "test": "vitest run",
+    "pack": "npm run build:all && electron-builder --dir",
+    "dist": "npm run build:all && electron-builder",
+    "dist:mac": "npm run build:all && electron-builder --mac",
+    "dist:mac:arm64": "npm run build:all && electron-builder --mac --arm64",
+    "dist:win": "npm run build:all && electron-builder --win",
+    "publish:release": "npm run build:all && electron-builder --publish always",
+    "version:bump": "node scripts/bump-version.js"
+  },
+  "keywords": [
+    "electron",
+    "assistant",
+    "ai-companion",
+    "3d",
+    "desktop"
+  ],
+  "author": "Appu Team",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron-updater": "^6.8.11",
+    "lucide-react": "^1.66.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.187.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "concurrently": "^10.0.6",
+    "cross-env": "^10.1.0",
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0",
+    "jsdom": "^30.1.3",
+    "vitest": "^5.0.5",
+    "wait-on": "^9.5.1"
+  }
+}

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Appu AI — 3D Character Prototype</title>
+  <title>Appu AI — 3D Robot Companion</title>
   
   <style>
     :root {
@@ -13,7 +13,7 @@
       --neon-cyan: #00e5ff;
       --neon-blue: #0088ff;
       --neon-green: #00ff88;
-      --neon-purple: #c040ff;
+      --neon-gold: #ffc83b;
       --text-main: #e2f1fd;
       --text-dim: #7da5c4;
     }
@@ -28,7 +28,7 @@
 
     body {
       background-color: var(--bg);
-      background-image: radial-gradient(circle at 50% 30%, #061e38 0%, #02070e 80%);
+      background-image: radial-gradient(circle at 50% 30%, #082648 0%, #02070e 80%);
       color: var(--text-main);
       height: 100vh;
       overflow: hidden;
@@ -84,16 +84,16 @@
     }
 
     .brand-logo {
-      width: 44px;
-      height: 44px;
+      width: 46px;
+      height: 46px;
       border: 1px solid var(--border-cyan);
-      border-radius: 8px;
+      border-radius: 10px;
       background: rgba(0, 229, 255, 0.08);
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 15px rgba(0, 229, 255, 0.2);
-      font-size: 20px;
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.25);
+      font-size: 24px;
     }
 
     .brand-title {
@@ -107,13 +107,15 @@
     .brand-subtitle {
       font-size: 11px;
       letter-spacing: 2px;
-      color: var(--text-dim);
+      color: var(--neon-gold);
       margin-top: 2px;
+      font-weight: 600;
     }
 
     .header-actions {
       display: flex;
-      gap: 12px;
+      gap: 10px;
+      align-items: center;
     }
 
     .cyber-btn {
@@ -145,6 +147,12 @@
       background: rgba(0, 229, 255, 0.25);
       border-color: var(--neon-cyan);
       box-shadow: 0 0 15px rgba(0, 229, 255, 0.5);
+      color: #fff;
+    }
+
+    .cyber-btn.gold {
+      border-color: rgba(255, 200, 59, 0.4);
+      color: var(--neon-gold);
     }
 
     /* Main HUD Panels Layout */
@@ -161,9 +169,9 @@
       border: 1px solid var(--border-cyan);
       border-radius: 10px;
       padding: 16px 20px;
-      width: 280px;
+      width: 290px;
       backdrop-filter: blur(12px);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
     }
 
     .card-title {
@@ -241,7 +249,7 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      width: 600px;
+      width: 620px;
       max-width: 90vw;
       backdrop-filter: blur(12px);
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
@@ -263,70 +271,19 @@
       border-color: var(--neon-cyan);
       box-shadow: 0 0 10px rgba(0, 229, 255, 0.25);
     }
-
-    /* Loading Overlay */
-    #loading-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      background: #02070e;
-      z-index: 100;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 20px;
-      transition: opacity 0.6s ease;
-    }
-
-    .spinner {
-      width: 50px;
-      height: 50px;
-      border: 3px solid rgba(0, 229, 255, 0.1);
-      border-top-color: var(--neon-cyan);
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    .loading-text {
-      font-size: 14px;
-      letter-spacing: 3px;
-      color: var(--neon-cyan);
-      text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
-    }
-
-    .loading-subtext {
-      font-size: 11px;
-      color: var(--text-dim);
-      letter-spacing: 1px;
-    }
   </style>
 
-  <!-- Three.js and @pixiv/three-vrm ES Modules Map -->
+  <!-- Three.js Module Map -->
   <script type="importmap">
     {
       "imports": {
         "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
-        "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.3.4/lib/three-vrm.module.js"
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
       }
     }
   </script>
 </head>
 <body>
-
-  <!-- Loading Screen -->
-  <div id="loading-overlay">
-    <div class="spinner"></div>
-    <div class="loading-text">INITIALIZING 3D AI COMPANION</div>
-    <div class="loading-subtext">Compiling Three.js shaders & streaming VRM avatar...</div>
-  </div>
 
   <!-- 3D Viewport Canvas Container -->
   <div id="canvas-container"></div>
@@ -337,10 +294,10 @@
     <!-- Top Bar -->
     <header class="header">
       <div class="brand">
-        <div class="brand-logo">👩</div>
+        <div class="brand-logo" id="brand-logo">🤖</div>
         <div>
-          <div class="brand-title">APPU 3D COMPANION</div>
-          <div class="brand-subtitle">FEMALE AI AVATAR • PROTOTYPE V1.0</div>
+          <div class="brand-title">APPU 3D ROBOT</div>
+          <div class="brand-subtitle" id="brand-subtitle">CUTE AI ASSISTANT ROBOT • 3D COMPANION</div>
         </div>
       </div>
       <div class="header-actions interactive">
@@ -356,29 +313,29 @@
       <!-- Left Panel: State & Expressions -->
       <div class="hud-card interactive">
         <div class="card-title">
-          <span>EXPRESSION & EMOTION</span>
+          <span>OLED DISPLAY & EMOTIONS</span>
           <span class="status-badge">
             <span class="status-dot"></span>
-            <span id="active-state-label">HAPPY</span>
+            <span id="active-state-label">ICONIC RINGS</span>
           </span>
         </div>
 
         <div class="control-group">
-          <span class="control-label">FACIAL PRESETS</span>
+          <span class="control-label">ROBOT SCREEN PRESETS</span>
           <div class="grid-btns">
-            <button class="cyber-btn btn-small" onclick="setAvatarEmotion('happy')">😊 Happy</button>
-            <button class="cyber-btn btn-small" onclick="setAvatarEmotion('neutral')">😐 Neutral</button>
-            <button class="cyber-btn btn-small" onclick="setAvatarEmotion('surprised')">😲 Surprised</button>
-            <button class="cyber-btn btn-small" onclick="setAvatarEmotion('sad')">🥺 Shy/Sad</button>
-            <button class="cyber-btn btn-small" onclick="setAvatarEmotion('relaxed')">😌 Relaxed</button>
-            <button class="cyber-btn btn-small" onclick="triggerWink()">😉 Wink</button>
+            <button class="cyber-btn btn-small active" id="btn-emo-neutral" onclick="setRobotEmotion('neutral')">😐 Iconic Rings</button>
+            <button class="cyber-btn btn-small" id="btn-emo-happy" onclick="setRobotEmotion('happy')">😊 Friendly</button>
+            <button class="cyber-btn btn-small" id="btn-emo-surprised" onclick="setRobotEmotion('surprised')">😲 Surprised</button>
+            <button class="cyber-btn btn-small" id="btn-emo-thinking" onclick="setRobotEmotion('thinking')">🤔 Thinking</button>
+            <button class="cyber-btn btn-small" id="btn-emo-wink" onclick="setRobotEmotion('wink')">😉 Wink</button>
+            <button class="cyber-btn btn-small" id="btn-emo-love" onclick="setRobotEmotion('love')">❤️ Love Eyes</button>
           </div>
         </div>
 
         <div class="control-group" style="margin-top: 14px;">
-          <span class="control-label">INTERACTION MODES</span>
+          <span class="control-label">INTERACTIVE TRACKING</span>
           <div class="grid-btns">
-            <button class="cyber-btn btn-small active" id="btn-lookat" onclick="toggleLookAt()">👀 Eye Tracking</button>
+            <button class="cyber-btn btn-small active" id="btn-lookat" onclick="toggleLookAt()">👀 Cursor Tracking</button>
             <button class="cyber-btn btn-small active" id="btn-blink" onclick="toggleBlink()">✨ Auto-Blink</button>
           </div>
         </div>
@@ -394,21 +351,21 @@
         <div class="control-group">
           <span class="control-label">FRAMING PRESETS</span>
           <div class="grid-btns">
-            <button class="cyber-btn btn-small" onclick="setCameraView('bust')">Upper Body</button>
-            <button class="cyber-btn btn-small" onclick="setCameraView('face')">Close Face</button>
-            <button class="cyber-btn btn-small" onclick="setCameraView('full')">Full View</button>
+            <button class="cyber-btn btn-small active" id="cam-full" onclick="setCameraView('full')">Full Robot</button>
+            <button class="cyber-btn btn-small" id="cam-bust" onclick="setCameraView('bust')">Upper Body</button>
+            <button class="cyber-btn btn-small" id="cam-portrait" onclick="setCameraView('portrait')">Close Face</button>
             <button class="cyber-btn btn-small" onclick="resetCamera()">Reset</button>
           </div>
         </div>
 
         <div class="control-group" style="margin-top: 14px;">
-          <span class="control-label">LIP-SYNC & SPEECH TEST</span>
+          <span class="control-label">ROBOT VOICE & TALK SIMULATOR</span>
           <div style="display: flex; flex-direction: column; gap: 8px;">
             <button class="cyber-btn btn-small" id="btn-talk-sim" onclick="toggleSpeechSimulation()">
               <span id="talk-icon">💬</span> <span id="talk-label">Simulate Speaking</span>
             </button>
-            <button class="cyber-btn btn-small" onclick="speakPreset('Hello! I am Appu, your personal AI assistant. How can I help you today?')">
-              <span>🎙️ Quick Intro Greeting</span>
+            <button class="cyber-btn btn-small" onclick="speakPreset('Hello! I am Appu. I am your personal AI robot assistant!')">
+              <span>🎙️ Greeting Speech</span>
             </button>
           </div>
         </div>
@@ -423,10 +380,10 @@
           type="text" 
           id="custom-speech-input" 
           class="speech-input" 
-          placeholder="Type message to test AI speech & real-time lip-sync..." 
-          value="I am online and ready to assist you!"
+          placeholder="Type message to hear the robot speak with animated mouth and eyes..." 
+          value="Beep boop! I am online and ready to assist you!"
         />
-        <button class="cyber-btn" onclick="speakCustomText()">
+        <button class="cyber-btn gold" onclick="speakCustomText()">
           <span>🔊 SPEAK</span>
         </button>
       </div>
@@ -434,270 +391,574 @@
 
   </div>
 
-  <!-- Main 3D Three.js & VRM Logic -->
+  <!-- Main Three.js Script -->
   <script type="module">
     import * as THREE from 'three';
-    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
     // Global handles
     let scene, camera, renderer, controls;
-    let currentVrm = null;
     let clock = new THREE.Clock();
+    let robotGroup = null;
+    let robotHead = null;
 
-    // Interaction states
-    let lookAtTarget = new THREE.Vector3(0, 1.4, 1.5);
+    // Face Screen Texture & Canvas
+    let faceCanvas, faceCtx, faceTexture;
+    let lookTarget = { x: 0, y: 0 };
     let mousePos = { x: 0, y: 0 };
     let enableLookAt = true;
     let enableBlink = true;
     let isSpeaking = false;
-    let activeEmotion = 'happy';
+    let currentEmotion = 'neutral';
 
-    // Blinking timers
-    let nextBlinkTime = 2.0;
-    let blinkDuration = 0.12;
+    // Blinking
+    let nextBlinkTime = 2.5;
+    let blinkDuration = 0.15;
     let blinkTimer = 0;
     let isBlinking = false;
+    let mouthOpenAmount = 0.0;
 
-    // Speech simulation timers & viseme weights
-    let speechTimer = 0;
-    let currentViseme = 'aa';
-    const visemes = ['aa', 'ih', 'ou', 'ee', 'oh'];
-
-    // DOM Elements
+    // DOM references
     const container = document.getElementById('canvas-container');
-    const loadingOverlay = document.getElementById('loading-overlay');
     const activeStateLabel = document.getElementById('active-state-label');
     const btnTalkSim = document.getElementById('btn-talk-sim');
     const talkIcon = document.getElementById('talk-icon');
     const talkLabel = document.getElementById('talk-label');
 
-    // 1. Initialize Scene, Lights, Camera
+    // 1. Initialize Scene & Three.js
     function init() {
-      // Scene
       scene = new THREE.Scene();
 
-      // Camera
-      camera = new THREE.PerspectiveCamera(32, window.innerWidth / window.innerHeight, 0.1, 20.0);
-      camera.position.set(0.0, 1.35, 1.6); // Default upper body portrait
+      camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 30.0);
+      camera.position.set(0.0, 0.20, 5.8);
 
-      // Renderer
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.1;
+      renderer.toneMappingExposure = 1.15;
       container.appendChild(renderer.domElement);
 
-      // Controls
       controls = new OrbitControls(camera, renderer.domElement);
-      controls.target.set(0, 1.3, 0);
+      controls.target.set(0, 0.35, 0);
       controls.enableDamping = true;
       controls.dampingFactor = 0.05;
-      controls.minDistance = 0.5;
-      controls.maxDistance = 4.0;
-      controls.maxPolarAngle = Math.PI / 2 + 0.1;
+      controls.minDistance = 4.2;
+      controls.maxDistance = 10.0;
 
-      // Lights tailored for Cyberpunk aesthetic
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+      // Studio Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
       scene.add(ambientLight);
 
-      // Key light: crisp cyan
-      const keyLight = new THREE.DirectionalLight(0x00e5ff, 1.4);
-      keyLight.position.set(1.5, 2.5, 2.0);
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
+      keyLight.position.set(2.0, 3.0, 2.5);
       scene.add(keyLight);
 
-      // Fill light: soft purple/magenta
-      const fillLight = new THREE.DirectionalLight(0xc040ff, 0.8);
-      fillLight.position.set(-1.8, 1.5, 1.5);
+      const fillLight = new THREE.DirectionalLight(0x00e5ff, 0.9);
+      fillLight.position.set(-2.5, 1.5, 2.0);
       scene.add(fillLight);
 
-      // Rim light: deep electric blue behind character
-      const rimLight = new THREE.DirectionalLight(0x0088ff, 2.2);
-      rimLight.position.set(0.0, 2.0, -2.5);
-      scene.add(rimLight);
+      const goldRimLight = new THREE.DirectionalLight(0xffd570, 2.0);
+      goldRimLight.position.set(1.5, 2.5, -2.0);
+      scene.add(goldRimLight);
 
-      // Window resize
+      const blueBackLight = new THREE.DirectionalLight(0x0066ff, 1.6);
+      blueBackLight.position.set(-1.5, -1.0, -2.5);
+      scene.add(blueBackLight);
+
+      setupVisorCanvas();
+
       window.addEventListener('resize', onWindowResize);
-
-      // Mouse tracking for LookAt gaze
       window.addEventListener('mousemove', onMouseMove);
 
-      // Load VRM Avatar
-      loadAvatar('/models/avatar/avatar.vrm');
+      createRobotModel();
 
-      // Start render loop
       animate();
     }
 
-    // 2. Load VRM Model
-    function loadAvatar(url) {
-      const loader = new GLTFLoader();
-      loader.register((parser) => new VRMLoaderPlugin(parser));
+    // 2. Setup Dynamic 2D Canvas for Visor Face
+    function setupVisorCanvas() {
+      faceCanvas = document.createElement('canvas');
+      faceCanvas.width = 512;
+      faceCanvas.height = 320;
+      faceCtx = faceCanvas.getContext('2d');
 
-      loader.load(
-        url,
-        (gltf) => {
-          const vrm = gltf.userData.vrm;
-          if (!vrm) {
-            console.error('No VRM instance found in model.');
-            return;
-          }
+      faceTexture = new THREE.CanvasTexture(faceCanvas);
+      faceTexture.colorSpace = THREE.SRGBColorSpace;
+    }
 
-          // VRM 0.x models face -Z and require a 180° rotation
-          VRMUtils.rotateVRM0(vrm);
+    // 3. Render the OLED Visor Display (Eyes & Smile)
+    function renderVisorFace() {
+      if (!faceCtx) return;
+      const ctx = faceCtx;
+      const w = 512, h = 320;
 
-          currentVrm = vrm;
-          scene.add(vrm.scene);
+      ctx.clearRect(0, 0, w, h);
 
-          // Disable frustum culling so hair and body don't clip when moving camera
-          vrm.scene.traverse((obj) => {
-            obj.frustumCulled = false;
-          });
+      // Smooth Rounded Capsule Visor
+      const padX = 26;
+      const padY = 32;
+      const cornerRadius = 90;
 
-          // Set default relaxed posture
-          relaxArms(vrm);
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(padX, padY, w - padX * 2, h - padY * 2, cornerRadius);
+      ctx.fillStyle = '#06080d';
+      ctx.fill();
 
-          // Initialize with happy emotion
-          setEmotion('happy');
+      // Curved specular glass reflection
+      const grad = ctx.createLinearGradient(0, padY, 0, h - padY);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.18)');
+      grad.addColorStop(0.25, 'rgba(255, 255, 255, 0.03)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0.45)');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.restore();
 
-          // Fade out loading screen
-          setTimeout(() => {
-            loadingOverlay.style.opacity = '0';
-            setTimeout(() => {
-              loadingOverlay.style.display = 'none';
-            }, 600);
-          }, 300);
-        },
-        (progress) => {
-          // Progress feedback
-        },
-        (error) => {
-          console.error('Error loading VRM:', error);
-          loadingOverlay.innerHTML = `
-            <div style="color: #ff4060; font-size: 16px; font-weight: bold;">FAILED TO LOAD 3D AVATAR</div>
-            <div style="color: #7da5c4; font-size: 12px; margin-top: 8px;">${error.message}</div>
-          `;
+      // Eye positions with cursor tracking
+      const lookOffsetLimitX = 30;
+      const lookOffsetLimitY = 18;
+      const offsetX = enableLookAt ? lookTarget.x * lookOffsetLimitX : 0;
+      const offsetY = enableLookAt ? -lookTarget.y * lookOffsetLimitY : 0;
+
+      const leftEyeX = 165 + offsetX;
+      const leftEyeY = 140 + offsetY;
+      const rightEyeX = 347 + offsetX;
+      const rightEyeY = 140 + offsetY;
+      const eyeRadius = 45;
+
+      let scaleY = 1.0;
+      if (isBlinking) {
+        scaleY = Math.max(0.08, Math.sin((blinkTimer / blinkDuration) * Math.PI));
+      }
+
+      // Draw Left and Right LED Ring Eyes
+      drawEye(ctx, leftEyeX, leftEyeY, eyeRadius, scaleY, currentEmotion === 'happy' || currentEmotion === 'love', false);
+      drawEye(ctx, rightEyeX, rightEyeY, eyeRadius, scaleY, currentEmotion === 'happy', currentEmotion === 'wink');
+
+      // Draw Cute Smile
+      ctx.save();
+      ctx.translate(256 + offsetX * 0.3, 235 + offsetY * 0.2);
+
+      if (mouthOpenAmount > 0.08) {
+        ctx.fillStyle = '#11161d';
+        ctx.strokeStyle = '#ffd875';
+        ctx.lineWidth = 3.5;
+        ctx.shadowColor = '#ffc83b';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 22 + mouthOpenAmount * 12, 10 + mouthOpenAmount * 15, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = '#222830';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(0, -12, 28, Math.PI * 0.2, Math.PI * 0.8, false);
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(255, 215, 120, 0.45)';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      faceTexture.needsUpdate = true;
+    }
+
+    // Dotted golden luminous ring eyes
+    function drawEye(ctx, cx, cy, radius, scaleY, isHappy, isWink) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(1, isWink ? 0.08 : scaleY);
+
+      if (isWink || scaleY <= 0.15) {
+        ctx.strokeStyle = '#ffd875';
+        ctx.lineWidth = 9;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = '#ffb82e';
+        ctx.shadowBlur = 18;
+        ctx.beginPath();
+        ctx.moveTo(-radius * 0.85, 0);
+        ctx.lineTo(radius * 0.85, 0);
+        ctx.stroke();
+      } else if (isHappy) {
+        ctx.strokeStyle = '#ffd875';
+        ctx.lineWidth = 11;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = '#ffb82e';
+        ctx.shadowBlur = 20;
+        ctx.beginPath();
+        ctx.arc(0, radius * 0.45, radius * 0.72, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.stroke();
+      } else if (currentEmotion === 'love') {
+        ctx.fillStyle = '#ff4070';
+        ctx.shadowColor = '#ff4070';
+        ctx.shadowBlur = 22;
+        ctx.beginPath();
+        const topCurveHeight = radius * 0.5;
+        ctx.moveTo(0, topCurveHeight);
+        ctx.bezierCurveTo(0, 0, -radius * 0.8, 0, -radius * 0.8, topCurveHeight);
+        ctx.bezierCurveTo(-radius * 0.8, radius * 0.8, 0, radius, 0, radius * 1.3);
+        ctx.bezierCurveTo(0, radius, radius * 0.8, radius * 0.8, radius * 0.8, topCurveHeight);
+        ctx.bezierCurveTo(radius * 0.8, 0, 0, 0, 0, topCurveHeight);
+        ctx.fill();
+      } else {
+        ctx.shadowColor = '#ffb82e';
+        ctx.shadowBlur = 24;
+
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 215, 110, 0.35)';
+        ctx.lineWidth = 14;
+        ctx.stroke();
+
+        const dots = 34;
+        ctx.shadowBlur = 12;
+        for (let i = 0; i < dots; i++) {
+          const angle = (i / dots) * Math.PI * 2;
+          const dx = Math.cos(angle) * radius;
+          const dy = Math.sin(angle) * radius;
+          ctx.beginPath();
+          ctx.fillStyle = '#fff4d0';
+          ctx.arc(dx, dy, 3.4, 0, Math.PI * 2);
+          ctx.fill();
         }
+
+        const radGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, radius * 0.85);
+        radGrad.addColorStop(0, 'rgba(255, 230, 150, 0.45)');
+        radGrad.addColorStop(0.55, 'rgba(255, 180, 50, 0.18)');
+        radGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = radGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.85, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    // 4. Construct the 3D Procedural Cute AI Robot
+    function createRobotModel() {
+      if (robotGroup) scene.remove(robotGroup);
+
+      robotGroup = new THREE.Group();
+
+      const whiteMat = new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        roughness: 0.12,
+        metalness: 0.04,
+        clearcoat: 0.9,
+        clearcoatRoughness: 0.08,
+      });
+
+      const metalMat = new THREE.MeshStandardMaterial({
+        color: 0x363b44,
+        roughness: 0.35,
+        metalness: 0.85,
+      });
+
+      const goldMat = new THREE.MeshStandardMaterial({
+        color: 0xdca83e,
+        roughness: 0.25,
+        metalness: 0.8,
+      });
+
+      const chestMat = new THREE.MeshStandardMaterial({
+        color: 0x7c8590,
+        roughness: 0.35,
+        metalness: 0.5,
+      });
+
+      // HEAD
+      robotHead = new THREE.Group();
+      robotHead.position.set(0, 0.42, 0);
+
+      const skullGeo = new THREE.SphereGeometry(0.70, 48, 48);
+      const skullMesh = new THREE.Mesh(skullGeo, whiteMat);
+      skullMesh.scale.set(1.24, 0.98, 1.06);
+      robotHead.add(skullMesh);
+
+      // Forehead pill on FRONT (+Z)
+      const sensorGeo = new THREE.CapsuleGeometry(0.038, 0.07, 16, 16);
+      const sensorMat = new THREE.MeshStandardMaterial({ color: 0x181a1e, roughness: 0.4 });
+      const sensorMesh = new THREE.Mesh(sensorGeo, sensorMat);
+      sensorMesh.position.set(0, 0.65, 0.38);
+      sensorMesh.rotation.x = THREE.MathUtils.degToRad(35);
+      robotHead.add(sensorMesh);
+
+      // Side Ears on Left (-X) and Right (+X)
+      [-1, 1].forEach((dir) => {
+        const earGroup = new THREE.Group();
+        earGroup.position.set(dir * 0.86, 0.02, 0);
+        earGroup.rotation.z = dir * Math.PI / 2;
+
+        const earGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.08, 32);
+        const earMesh = new THREE.Mesh(earGeo, metalMat);
+        earGroup.add(earMesh);
+
+        const rimGeo = new THREE.TorusGeometry(0.18, 0.022, 16, 32);
+        const rimMesh = new THREE.Mesh(rimGeo, goldMat);
+        rimMesh.rotation.x = Math.PI / 2;
+        earGroup.add(rimMesh);
+
+        robotHead.add(earGroup);
+      });
+
+      // Visor on FRONT (+Z) centered at phi = PI/2
+      const phiLength = Math.PI * 0.64;
+      const phiStart = Math.PI * 0.5 - phiLength * 0.5;
+      const thetaLength = Math.PI * 0.32;
+      const thetaStart = Math.PI * 0.5 - thetaLength * 0.5;
+
+      const visorGeo = new THREE.SphereGeometry(0.708, 44, 28, phiStart, phiLength, thetaStart, thetaLength);
+      const visorMat = new THREE.MeshBasicMaterial({
+        map: faceTexture,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.FrontSide,
+      });
+      const visorMesh = new THREE.Mesh(visorGeo, visorMat);
+      visorMesh.scale.set(1.242, 0.982, 1.062);
+      robotHead.add(visorMesh);
+
+      robotGroup.add(robotHead);
+
+      // NECK
+      const neckGeo = new THREE.SphereGeometry(0.16, 24, 24);
+      const neckMesh = new THREE.Mesh(neckGeo, metalMat);
+      neckMesh.position.set(0, 0.22, 0);
+      robotGroup.add(neckMesh);
+
+      // TORSO
+      const torsoGroup = new THREE.Group();
+      torsoGroup.position.set(0, -0.16, 0);
+
+      const bodyGeo = new THREE.SphereGeometry(0.48, 36, 36);
+      const bodyMesh = new THREE.Mesh(bodyGeo, whiteMat);
+      bodyMesh.scale.set(0.86, 1.05, 0.80);
+      torsoGroup.add(bodyMesh);
+
+      // Chest Badge on FRONT (+Z)
+      const chestGeo = new THREE.SphereGeometry(0.24, 24, 24);
+      const chestMesh = new THREE.Mesh(chestGeo, chestMat);
+      chestMesh.position.set(0, 0.06, 0.34);
+      chestMesh.scale.set(0.92, 1.15, 0.25);
+      torsoGroup.add(chestMesh);
+
+      const dotGeo = new THREE.CircleGeometry(0.025, 20);
+      const dotMat = new THREE.MeshBasicMaterial({ color: 0x22262c });
+      const dotMesh = new THREE.Mesh(dotGeo, dotMat);
+      dotMesh.position.set(0, 0.06, 0.41);
+      torsoGroup.add(dotMesh);
+
+      robotGroup.add(torsoGroup);
+
+      // ARMS
+      // Left arm (Viewer's right: +X, pointing forward)
+      const armL = new THREE.Group();
+      armL.position.set(0.44, -0.04, 0.05);
+
+      const shoulderL = new THREE.Mesh(new THREE.SphereGeometry(0.10, 20, 20), metalMat);
+      armL.add(shoulderL);
+
+      const upperArmGroupL = new THREE.Group();
+      upperArmGroupL.rotation.set(THREE.MathUtils.degToRad(35), 0, THREE.MathUtils.degToRad(-25));
+
+      const upperArmMeshL = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.07, 0.26, 20), whiteMat);
+      upperArmMeshL.position.set(0, -0.13, 0);
+      upperArmGroupL.add(upperArmMeshL);
+
+      const elbowL = new THREE.Mesh(new THREE.SphereGeometry(0.07, 18, 18), metalMat);
+      elbowL.position.set(0, -0.26, 0);
+      upperArmGroupL.add(elbowL);
+
+      const forearmGroupL = new THREE.Group();
+      forearmGroupL.position.set(0, -0.26, 0);
+      forearmGroupL.rotation.set(THREE.MathUtils.degToRad(65), 0, 0);
+
+      const forearmMeshL = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.065, 0.26, 20), whiteMat);
+      forearmMeshL.position.set(0, -0.13, 0);
+      forearmGroupL.add(forearmMeshL);
+
+      const handL = new THREE.Group();
+      handL.position.set(0, -0.26, 0);
+      const palmL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 16, 16), metalMat);
+      handL.add(palmL);
+
+      const fingerL = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.013, 0.12, 12), metalMat);
+      fingerL.position.set(0, -0.06, 0.02);
+      fingerL.rotation.x = Math.PI / 2;
+      handL.add(fingerL);
+
+      forearmGroupL.add(handL);
+      upperArmGroupL.add(forearmGroupL);
+      armL.add(upperArmGroupL);
+      robotGroup.add(armL);
+
+      // Right arm (Viewer's left: -X, resting)
+      const armR = new THREE.Group();
+      armR.position.set(-0.44, -0.04, 0);
+
+      const shoulderR = new THREE.Mesh(new THREE.SphereGeometry(0.10, 20, 20), metalMat);
+      armR.add(shoulderR);
+
+      const upperArmGroupR = new THREE.Group();
+      upperArmGroupR.rotation.set(THREE.MathUtils.degToRad(15), 0, THREE.MathUtils.degToRad(20));
+
+      const upperArmMeshR = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.07, 0.26, 20), whiteMat);
+      upperArmMeshR.position.set(0, -0.13, 0);
+      upperArmGroupR.add(upperArmMeshR);
+
+      const elbowR = new THREE.Mesh(new THREE.SphereGeometry(0.07, 18, 18), metalMat);
+      elbowR.position.set(0, -0.26, 0);
+      upperArmGroupR.add(elbowR);
+
+      const forearmGroupR = new THREE.Group();
+      forearmGroupR.position.set(0, -0.26, 0);
+      forearmGroupR.rotation.set(THREE.MathUtils.degToRad(20), 0, 0);
+
+      const forearmMeshR = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.065, 0.24, 20), whiteMat);
+      forearmMeshR.position.set(0, -0.12, 0);
+      forearmGroupR.add(forearmMeshR);
+
+      const handR = new THREE.Mesh(new THREE.SphereGeometry(0.055, 16, 16), metalMat);
+      handR.position.set(0, -0.24, 0);
+      forearmGroupR.add(handR);
+
+      upperArmGroupR.add(forearmGroupR);
+      armR.add(upperArmGroupR);
+      robotGroup.add(armR);
+
+      // LEGS & BOOTS (Facing FORWARD +Z)
+      [-1, 1].forEach((dir) => {
+        const legGroup = new THREE.Group();
+        legGroup.position.set(dir * 0.20, -0.55, 0);
+
+        const hip = new THREE.Mesh(new THREE.SphereGeometry(0.085, 18, 18), metalMat);
+        legGroup.add(hip);
+
+        const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.065, 0.18, 20), whiteMat);
+        thigh.position.set(0, -0.09, 0);
+        legGroup.add(thigh);
+
+        const knee = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 16), metalMat);
+        knee.position.set(0, -0.18, 0);
+        legGroup.add(knee);
+
+        const bootGroup = new THREE.Group();
+        bootGroup.position.set(0, -0.28, 0.08);
+
+        const bootMesh = new THREE.Mesh(new THREE.SphereGeometry(0.13, 24, 24), whiteMat);
+        bootMesh.scale.set(0.85, 1.0, 1.45);
+        bootGroup.add(bootMesh);
+
+        const sidePatch = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.24, 16), metalMat);
+        sidePatch.rotation.z = Math.PI / 2;
+        sidePatch.position.set(dir * 0.02, 0, 0);
+        bootGroup.add(sidePatch);
+
+        const soleMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.02, 24), goldMat);
+        soleMesh.position.set(0, -0.12, 0);
+        soleMesh.scale.set(0.9, 1.0, 1.4);
+        bootGroup.add(soleMesh);
+
+        legGroup.add(bootGroup);
+        robotGroup.add(legGroup);
+      });
+
+      robotGroup.scale.set(0.72, 0.72, 0.72);
+      robotGroup.position.set(0, 0.08, 0);
+      scene.add(robotGroup);
+
+      createPlatform();
+    }
+
+    // Platform Pedestal
+    function createPlatform() {
+      const platformGroup = new THREE.Group();
+      platformGroup.position.set(0, -0.74, 0);
+
+      const baseMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.05, 1.15, 0.06, 48),
+        new THREE.MeshStandardMaterial({ color: 0x141822, roughness: 0.35, metalness: 0.85 })
       );
+      platformGroup.add(baseMesh);
+
+      const ring1 = new THREE.Mesh(
+        new THREE.RingGeometry(0.75, 0.82, 48),
+        new THREE.MeshBasicMaterial({ color: 0x00e5ff, side: THREE.DoubleSide })
+      );
+      ring1.rotation.x = -Math.PI / 2;
+      ring1.position.y = 0.032;
+      platformGroup.add(ring1);
+
+      const ring2 = new THREE.Mesh(
+        new THREE.RingGeometry(0.95, 0.98, 48),
+        new THREE.MeshBasicMaterial({ color: 0xffd570, side: THREE.DoubleSide })
+      );
+      ring2.rotation.x = -Math.PI / 2;
+      ring2.position.y = 0.032;
+      platformGroup.add(ring2);
+
+      const shadowMesh = new THREE.Mesh(
+        new THREE.CircleGeometry(0.60, 32),
+        new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.55 })
+      );
+      shadowMesh.rotation.x = -Math.PI / 2;
+      shadowMesh.position.y = 0.034;
+      platformGroup.add(shadowMesh);
+
+      scene.add(platformGroup);
     }
 
-    // Gentle arm relaxation so the character doesn't stay in a rigid T-pose / A-pose
-    function relaxArms(vrm) {
-      if (!vrm.humanoid) return;
-      const leftUpperArm = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
-      const rightUpperArm = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
-      const leftLowerArm = vrm.humanoid.getNormalizedBoneNode('leftLowerArm');
-      const rightLowerArm = vrm.humanoid.getNormalizedBoneNode('rightLowerArm');
-
-      if (leftUpperArm) leftUpperArm.rotation.z = THREE.MathUtils.degToRad(-65);
-      if (rightUpperArm) rightUpperArm.rotation.z = THREE.MathUtils.degToRad(65);
-      if (leftLowerArm) leftLowerArm.rotation.y = THREE.MathUtils.degToRad(-20);
-      if (rightLowerArm) rightLowerArm.rotation.y = THREE.MathUtils.degToRad(20);
-    }
-
-    // Mouse movement to LookAt vector
+    // 5. Mouse Tracking & Gaze
     function onMouseMove(event) {
       mousePos.x = (event.clientX / window.innerWidth) * 2 - 1;
       mousePos.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
-      // Map to 3D coordinate target in front of character's head
-      lookAtTarget.x = mousePos.x * 0.8;
-      lookAtTarget.y = 1.35 + mousePos.y * 0.4;
-      lookAtTarget.z = 1.8;
+      lookTarget.x = mousePos.x;
+      lookTarget.y = mousePos.y;
     }
 
-    // Set Facial Emotion Blendshape
-    function setEmotion(emotionName) {
-      if (!currentVrm || !currentVrm.expressionManager) return;
-      activeEmotion = emotionName;
-      if (activeStateLabel) activeStateLabel.textContent = emotionName.toUpperCase();
-
-      const em = currentVrm.expressionManager;
-      const presets = ['happy', 'neutral', 'surprised', 'sad', 'relaxed', 'angry'];
-
-      // Reset emotions to 0
-      presets.forEach((p) => {
-        try { em.setValue(p, 0); } catch (e) {}
-      });
-
-      // Apply chosen emotion
-      try {
-        if (emotionName !== 'neutral') {
-          em.setValue(emotionName, 1.0);
-        }
-      } catch (e) {
-        console.warn('Could not set expression:', emotionName);
-      }
-    }
-
-    // Animation & Render Loop
+    // 6. Animation Loop
     function animate() {
       requestAnimationFrame(animate);
       const delta = clock.getDelta();
       const time = clock.getElapsedTime();
 
-      if (currentVrm) {
-        // 1. Procedural Breathing (subtle chest/spine oscillation)
-        const spine = currentVrm.humanoid?.getNormalizedBoneNode('spine');
-        if (spine) {
-          spine.rotation.x = Math.sin(time * 1.8) * 0.02;
+      if (enableBlink) {
+        blinkTimer += delta;
+        if (!isBlinking && blinkTimer >= nextBlinkTime) {
+          isBlinking = true;
+          blinkTimer = 0;
+        }
+        if (isBlinking && blinkTimer >= blinkDuration) {
+          isBlinking = false;
+          blinkTimer = 0;
+          nextBlinkTime = 2.0 + Math.random() * 3.5;
+        }
+      }
+
+      if (isSpeaking) {
+        mouthOpenAmount = 0.4 + 0.6 * Math.abs(Math.sin(time * 16));
+      } else {
+        mouthOpenAmount = 0;
+      }
+
+      if (robotGroup) {
+        // Idle gentle hover
+        robotGroup.position.y = 0.08 + Math.sin(time * 1.8) * 0.03;
+
+        // Subtle head rotation tracking cursor
+        if (enableLookAt && robotHead) {
+          robotHead.rotation.y = THREE.MathUtils.lerp(robotHead.rotation.y, mousePos.x * 0.35, 0.08);
+          robotHead.rotation.x = THREE.MathUtils.lerp(robotHead.rotation.x, -mousePos.y * 0.22, 0.08);
         }
 
-        // 2. Head & Eye Tracking (LookAt with smooth damping)
-        if (enableLookAt && currentVrm.lookAt) {
-          const head = currentVrm.humanoid?.getNormalizedBoneNode('head');
-          if (head) {
-            // Smoothly interpolate head rotation towards cursor
-            head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, -mousePos.x * 0.35, 0.08);
-            head.rotation.x = THREE.MathUtils.lerp(head.rotation.x, -mousePos.y * 0.25, 0.08);
-          }
-        }
-
-        // 3. Procedural Natural Blinking
-        if (enableBlink && currentVrm.expressionManager) {
-          blinkTimer += delta;
-          if (!isBlinking && blinkTimer >= nextBlinkTime) {
-            isBlinking = true;
-            blinkTimer = 0;
-          }
-
-          if (isBlinking) {
-            const blinkWeight = Math.sin((blinkTimer / blinkDuration) * Math.PI);
-            currentVrm.expressionManager.setValue('blink', Math.max(0, Math.min(1, blinkWeight)));
-
-            if (blinkTimer >= blinkDuration) {
-              currentVrm.expressionManager.setValue('blink', 0);
-              isBlinking = false;
-              blinkTimer = 0;
-              nextBlinkTime = 2.5 + Math.random() * 3.0; // Random interval between blinks
-            }
-          }
-        }
-
-        // 4. Lip Sync & Speaking Motion
-        if (isSpeaking && currentVrm.expressionManager) {
-          speechTimer += delta;
-          if (speechTimer > 0.12) {
-            speechTimer = 0;
-            currentViseme = visemes[Math.floor(Math.random() * visemes.length)];
-          }
-
-          // Oscillate mouth open / closed with speech cadence
-          const mouthOpen = 0.3 + 0.6 * Math.abs(Math.sin(time * 14));
-          visemes.forEach((v) => {
-            currentVrm.expressionManager.setValue(v, v === currentViseme ? mouthOpen : 0);
-          });
-        } else if (!isSpeaking && currentVrm.expressionManager) {
-          visemes.forEach((v) => {
-            currentVrm.expressionManager.setValue(v, 0);
-          });
-        }
-
-        // Update VRM internal states & physics
-        currentVrm.update(delta);
+        renderVisorFace();
       }
 
       controls.update();
@@ -710,17 +971,15 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Exposure for window/HTML buttons
-    window.setAvatarEmotion = (name) => setEmotion(name);
+    // User Actions
+    window.setRobotEmotion = (emo) => {
+      currentEmotion = emo;
+      if (activeStateLabel) activeStateLabel.textContent = emo.toUpperCase();
 
-    window.triggerWink = () => {
-      if (!currentVrm || !currentVrm.expressionManager) return;
-      const em = currentVrm.expressionManager;
-      em.setValue('blinkLeft', 1.0);
-      setEmotion('happy');
-      setTimeout(() => {
-        em.setValue('blinkLeft', 0.0);
-      }, 350);
+      ['neutral', 'happy', 'surprised', 'thinking', 'wink', 'love'].forEach(name => {
+        const btn = document.getElementById(`btn-emo-${name}`);
+        if (btn) btn.classList.toggle('active', name === emo);
+      });
     };
 
     window.toggleLookAt = () => {
@@ -734,17 +993,22 @@
     };
 
     window.setCameraView = (type) => {
-      if (type === 'face') {
-        gsapCameraTo(0, 1.45, 0.75, 0, 1.42, 0);
+      ['full', 'bust', 'portrait'].forEach(id => {
+        const btn = document.getElementById(`cam-${id}`);
+        if (btn) btn.classList.toggle('active', id === type);
+      });
+
+      if (type === 'portrait') {
+        gsapCameraTo(0, 0.40, 3.4, 0, 0.38, 0);
       } else if (type === 'bust') {
-        gsapCameraTo(0, 1.35, 1.6, 0, 1.3, 0);
+        gsapCameraTo(0, 0.22, 4.4, 0, 0.15, 0);
       } else if (type === 'full') {
-        gsapCameraTo(0, 1.0, 3.2, 0, 0.9, 0);
+        gsapCameraTo(0, 0.20, 5.8, 0, 0.02, 0);
       }
     };
 
     window.resetCamera = () => {
-      gsapCameraTo(0, 1.35, 1.6, 0, 1.3, 0);
+      window.setCameraView('full');
     };
 
     function gsapCameraTo(px, py, pz, tx, ty, tz) {
@@ -759,15 +1023,15 @@
         btnTalkSim.classList.add('active');
         talkIcon.textContent = '🔊';
         talkLabel.textContent = 'Stop Speaking';
-        setEmotion('happy');
+        setRobotEmotion('happy');
       } else {
         btnTalkSim.classList.remove('active');
         talkIcon.textContent = '💬';
         talkLabel.textContent = 'Simulate Speaking';
+        setRobotEmotion('neutral');
       }
     };
 
-    // Speech with Web Speech Synthesis & Lip Sync
     window.speakPreset = (text) => {
       const input = document.getElementById('custom-speech-input');
       input.value = text;
@@ -782,21 +1046,19 @@
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         
-        // Pick female voice if available
         const voices = window.speechSynthesis.getVoices();
-        const femaleVoice = voices.find(v => 
-          v.name.includes('Samantha') || 
-          v.name.includes('Victoria') || 
-          v.name.includes('Karen') || 
-          v.name.includes('Female')
+        const robotVoice = voices.find(v => 
+          v.name.includes('Fred') || 
+          v.name.includes('Alex') || 
+          v.name.includes('Daniel')
         );
-        if (femaleVoice) utterance.voice = femaleVoice;
+        if (robotVoice) utterance.voice = robotVoice;
         utterance.rate = 1.05;
-        utterance.pitch = 1.15;
+        utterance.pitch = 1.25;
 
         utterance.onstart = () => {
           isSpeaking = true;
-          setEmotion('happy');
+          setRobotEmotion('happy');
           btnTalkSim.classList.add('active');
         };
 
@@ -805,31 +1067,21 @@
           btnTalkSim.classList.remove('active');
           talkIcon.textContent = '💬';
           talkLabel.textContent = 'Simulate Speaking';
+          setRobotEmotion('neutral');
         };
 
         utterance.onerror = () => {
           isSpeaking = false;
           btnTalkSim.classList.remove('active');
+          setRobotEmotion('neutral');
         };
 
         window.speechSynthesis.speak(utterance);
       } else {
-        // Fallback simulation
         window.toggleSpeechSimulation();
-        setTimeout(() => {
-          if (isSpeaking) window.toggleSpeechSimulation();
-        }, 4000);
       }
     };
 
-    // Initialize Web Speech voices
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.getVoices();
-      };
-    }
-
-    // Launch scene
     init();
   </script>
 </body>

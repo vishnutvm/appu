@@ -1,0 +1,283 @@
+/* =========================================================================
+   APPU ACTIONS & POSES GALLERY PANEL
+   Dark Graphite, Gold & Cyan accents, Glassmorphism matching reference image
+   ========================================================================= */
+
+.actions-poses-panel-card {
+  position: relative;
+  width: 320px;
+  max-height: 480px;
+  background: rgba(16, 20, 28, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 14px 12px 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.72), 0 0 1px rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  color: #f1f5f9;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+  z-index: 105;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  animation: panel-fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes panel-fade-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* -------------------------------------------------------------
+   Panel Header
+   ------------------------------------------------------------- */
+.actions-poses-panel-card .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 10px;
+}
+
+.actions-poses-panel-card .header-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.actions-poses-panel-card .header-play-accent {
+  color: #f6c344;
+}
+
+.actions-poses-panel-card .header-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.actions-poses-panel-card .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actions-poses-panel-card .stand-up-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(246, 195, 68, 0.14);
+  border: 1px solid rgba(246, 195, 68, 0.35);
+  color: #f6c344;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.actions-poses-panel-card .stand-up-btn:hover {
+  background: rgba(246, 195, 68, 0.24);
+  border-color: #f6c344;
+}
+
+.actions-poses-panel-card .panel-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.actions-poses-panel-card .panel-close-btn:hover {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* -------------------------------------------------------------
+   Category Filter Tabs
+   ------------------------------------------------------------- */
+.actions-poses-panel-card .category-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  scrollbar-width: none;
+}
+
+.actions-poses-panel-card .category-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.actions-poses-panel-card .category-tab-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  color: #94a3b8;
+  font-size: 11px;
+  padding: 3.5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.12s ease;
+}
+
+.actions-poses-panel-card .category-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #e2e8f0;
+}
+
+.actions-poses-panel-card .category-tab-btn.is-selected {
+  background: rgba(246, 195, 68, 0.15);
+  border-color: rgba(246, 195, 68, 0.4);
+  color: #f6c344;
+  font-weight: 500;
+}
+
+/* -------------------------------------------------------------
+   Pose Cards Grid & Scroll Container
+   ------------------------------------------------------------- */
+.actions-poses-panel-card .pose-cards-scroll-container {
+  overflow-y: auto;
+  max-height: 380px;
+  padding-right: 4px;
+}
+
+.actions-poses-panel-card .pose-cards-scroll-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.actions-poses-panel-card .pose-cards-scroll-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+}
+
+.actions-poses-panel-card .pose-cards-scroll-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+
+.actions-poses-panel-card .pose-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+/* -------------------------------------------------------------
+   Pose Preview Card
+   ------------------------------------------------------------- */
+.pose-preview-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  padding: 6px 4px 7px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.pose-preview-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1.5px);
+}
+
+.pose-preview-card.is-active {
+  background: rgba(246, 195, 68, 0.1);
+  border-color: #f6c344;
+  box-shadow: 0 0 14px rgba(246, 195, 68, 0.3);
+}
+
+.pose-preview-card .preview-canvas-container {
+  width: 58px;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.pose-preview-card .preview-thumbnail {
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+  transition: transform 0.15s ease;
+}
+
+.pose-preview-card:hover .preview-thumbnail {
+  transform: scale(1.06);
+}
+
+.pose-preview-card .preview-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #f6c344;
+  text-shadow: 0 0 6px rgba(246, 195, 68, 0.6);
+  pointer-events: none;
+}
+
+.pose-preview-card .active-glow-indicator {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  background: #f6c344;
+  color: #0c1017;
+  border-radius: 50%;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pose-preview-card .active-play-icon {
+  margin-left: 1px;
+}
+
+.pose-preview-card .pose-card-info {
+  margin-top: 5px;
+  text-align: center;
+  width: 100%;
+}
+
+.pose-preview-card .pose-label {
+  display: block;
+  font-size: 10.5px;
+  color: #cbd5e1;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+
+.pose-preview-card.is-active .pose-label {
+  color: #f6c344;
+  font-weight: 600;
+}

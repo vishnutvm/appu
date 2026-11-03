@@ -1,0 +1,116 @@
+name: Release Appu Desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Release Channel'
+        required: true
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - beta
+          - development
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build & Package macOS (ARM64 & x64)
+    runs-on: macos-14
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'appu-3d/package-lock.json'
+
+      - name: Install Dependencies
+        working-directory: ./appu-3d
+        run: npm ci
+
+      - name: Run Test Suite
+        working-directory: ./appu-3d
+        run: npm test
+
+      - name: Build Application
+        working-directory: ./appu-3d
+        run: npm run build:all
+
+      - name: Package & Publish macOS DMG and ZIP
+        working-directory: ./appu-3d
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Apple Developer Code Signing Certificate (Base64 .p12)
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          # Apple Notarization Credentials (notarytool)
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          npx electron-builder --mac dmg zip --publish always
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-artifacts
+          path: |
+            appu-3d/release/*.dmg
+            appu-3d/release/*-mac.zip
+            appu-3d/release/*.yml
+            appu-3d/release/*.blockmap
+
+  build-windows:
+    name: Build & Package Windows (NSIS x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'appu-3d/package-lock.json'
+
+      - name: Install Dependencies
+        working-directory: ./appu-3d
+        run: npm ci
+
+      - name: Run Test Suite
+        working-directory: ./appu-3d
+        run: npm test
+
+      - name: Build Application
+        working-directory: ./appu-3d
+        run: npm run build:all
+
+      - name: Package & Publish Windows NSIS Installer
+        working-directory: ./appu-3d
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Windows Code Signing Certificate (Base64 .pfx)
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          npx electron-builder --win nsis --publish always
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: |
+            appu-3d/release/*.exe
+            appu-3d/release/*.yml
+            appu-3d/release/*.blockmap

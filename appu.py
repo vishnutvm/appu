@@ -21,8 +21,9 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 # Ensure execution inside .venv so all local voice dependencies are accessible
-_venv_python = Path(__file__).resolve().parent / ".venv" / "bin" / "python3"
-if _venv_python.exists() and Path(sys.executable).resolve() != _venv_python.resolve():
+_venv_dir = Path(__file__).resolve().parent / ".venv"
+_venv_python = _venv_dir / "bin" / "python3"
+if _venv_python.exists() and sys.prefix != str(_venv_dir):
     os.execv(str(_venv_python), [str(_venv_python)] + sys.argv)
 
 from reminders import (
