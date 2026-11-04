@@ -77,15 +77,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         })
         .catch(() => {});
     }
-
-    // Also attempt sync with local Python API if running
-    fetch('http://127.0.0.1:8000/api/settings')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.user_name) setUserName(data.user_name);
-        if (data?.assistant_name) setAssistantName(data.assistant_name);
-      })
-      .catch(() => {});
   }, [isOpen]);
 
   const handleSaveNames = (newUserName: string, newAssistantName: string) => {
@@ -103,16 +94,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         })
         .catch(() => {});
     }
-
-    // Sync with local backend
-    fetch('http://127.0.0.1:8000/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_name: trimmedUser,
-        assistant_name: trimmedAssistant,
-      }),
-    }).catch(() => {});
 
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2000);
