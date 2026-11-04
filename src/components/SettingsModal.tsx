@@ -16,8 +16,8 @@ import './SettingsModal.css';
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  isPinned: boolean;
-  onTogglePin: () => void;
+  isPinned?: boolean;
+  onTogglePin?: () => void;
   freeFallEnabled?: boolean;
   onToggleFreeFall?: () => void;
   updaterStatus?: UpdaterStatus | null;
@@ -31,31 +31,17 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
-  isPinned,
-  onTogglePin,
-  freeFallEnabled: propFreeFallEnabled,
-  onToggleFreeFall,
   updaterStatus: propUpdaterStatus,
   onCheckUpdates,
   onDownloadUpdate,
   onInstallUpdate,
   onSetChannel,
-  onSetAutoCheck,
 }) => {
   const [internalStatus, setInternalStatus] = useState<UpdaterStatus | null>(null);
-  const [internalFreeFall, setInternalFreeFall] = useState<boolean>(
-    propFreeFallEnabled !== undefined ? propFreeFallEnabled : true
-  );
   const [showNotes, setShowNotes] = useState(false);
   const [userName, setUserName] = useState<string>('Vishnu');
   const [assistantName, setAssistantName] = useState<string>('Appu');
   const [isSaved, setIsSaved] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (propFreeFallEnabled !== undefined) {
-      setInternalFreeFall(propFreeFallEnabled);
-    }
-  }, [propFreeFallEnabled]);
 
   // Sync with prop or listen to desktopAPI directly
   useEffect(() => {
@@ -158,40 +144,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleToggleAutoCheck = () => {
-    const nextVal = !status.autoCheckEnabled;
-    if (onSetAutoCheck) {
-      onSetAutoCheck(nextVal);
-    } else if (window.desktopAPI?.updater) {
-      window.desktopAPI.updater.setAutoCheck(nextVal);
-    }
-  };
-
-  const handleToggleFreeFall = () => {
-    if (onToggleFreeFall) {
-      onToggleFreeFall();
-    } else {
-      setInternalFreeFall((prev) => {
-        const next = !prev;
-        if (window.desktopAPI?.storage) {
-          window.desktopAPI.storage.saveSettings({ freeFallEnabled: next }).catch(() => {});
-        }
-        return next;
-      });
-    }
-  };
-
   const formatBytes = (bytes: number) => {
     if (!bytes || bytes <= 0) return '0 MB';
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
+
+  const isBeta = status.channel === 'beta';
 
   return (
     <div className="settings-modal-backdrop" onClick={onClose}>
       <div className="settings-modal-card" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
           <div className="settings-title-row">
-            <Sliders size={16} className="settings-gold-icon" />
+            <Sliders size={15} className="settings-header-icon" />
             <span className="settings-title">{assistantName || 'Appu'} Preferences</span>
           </div>
           <button className="settings-close-btn" onClick={onClose} aria-label="Close Settings">
@@ -255,7 +220,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {isSaved ? (
                   <>
                     <CheckCircle2 size={12} />
-                    <span>Saved!</span>
+                    <span>Saved</span>
                   </>
                 ) : (
                   <span>Save Names</span>
@@ -264,56 +229,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Companion Behavior */}
-          <div className="settings-group">
-            <span className="group-label">Companion Behavior</span>
-
-            <div className="settings-row">
-              <div className="row-text">
-                <span className="row-main">Stay on Screen (Pin)</span>
-                <span className="row-sub">Prevent Appu from automatically walking back to corner</span>
-              </div>
-              <div
-                className={`ios-toggle ${isPinned ? 'active' : ''}`}
-                onClick={onTogglePin}
-                role="switch"
-                aria-checked={isPinned}
-              >
-                <div className="toggle-thumb" />
-              </div>
-            </div>
-
-            <div className="settings-row">
-              <div className="row-text">
-                <span className="row-main">Free Fall & Throw Physics</span>
-                <span className="row-sub">Enable gravity, momentum, and bounce when flicked or dropped</span>
-              </div>
-              <div
-                className={`ios-toggle ${internalFreeFall ? 'active' : ''}`}
-                onClick={handleToggleFreeFall}
-                role="switch"
-                aria-checked={internalFreeFall}
-                aria-label="Toggle Free Fall Physics"
-              >
-                <div className="toggle-thumb" />
-              </div>
-            </div>
-
-            <div className="settings-row">
-              <div className="row-text">
-                <span className="row-main">Autonomous Roaming</span>
-                <span className="row-sub">Allow Appu to look around and stretch while idle</span>
-              </div>
-              <div className="ios-toggle active" role="switch" aria-checked="true">
-                <div className="toggle-thumb" />
-              </div>
-            </div>
-          </div>
-
-          {/* Software Updates & Channels */}
+          {/* Software Updates */}
           <div className="settings-group update-group">
             <span className="group-label">Software Updates</span>
 
+            {/* Version & Check */}
             <div className="settings-row">
               <div className="row-text">
                 <span className="row-main">Version</span>
@@ -322,6 +242,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </span>
               </div>
               <button
+                type="button"
                 className="check-update-btn"
                 onClick={handleCheck}
                 disabled={status.state === 'Checking' || status.state === 'Downloading'}
@@ -340,53 +261,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             </div>
 
-            {/* Release Channel Selector */}
-            <div className="settings-row channel-row">
-              <div className="row-text">
-                <span className="row-main">Update Channel</span>
-                <span className="row-sub">Beta gets early experimental releases</span>
-              </div>
-              <div className="channel-pill-group">
-                {(['stable', 'beta', 'development'] as ReleaseChannel[]).map((ch) => (
-                  <button
-                    key={ch}
-                    className={`channel-pill ${status.channel === ch ? 'active' : ''}`}
-                    onClick={() => handleChannelChange(ch)}
-                  >
-                    {ch.charAt(0).toUpperCase() + ch.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Auto Check Toggle */}
+            {/* Beta Version Switch */}
             <div className="settings-row">
               <div className="row-text">
-                <span className="row-main">Automatic Updates</span>
-                <span className="row-sub">Check in background, require approval to download</span>
+                <span className="row-main">Beta Version</span>
+                <span className="row-sub">Get early access to experimental releases</span>
               </div>
-              <div
-                className={`ios-toggle ${status.autoCheckEnabled ? 'active' : ''}`}
-                onClick={handleToggleAutoCheck}
+              <button
+                type="button"
+                className={`beta-toggle-pill ${isBeta ? 'active' : ''}`}
+                onClick={() => handleChannelChange(isBeta ? 'stable' : 'beta')}
                 role="switch"
-                aria-checked={status.autoCheckEnabled}
+                aria-checked={isBeta}
+                aria-label="Beta Version"
               >
-                <div className="toggle-thumb" />
-              </div>
+                <span className="toggle-track">
+                  <span className="toggle-thumb" />
+                </span>
+                <span className="toggle-text">Beta</span>
+              </button>
             </div>
 
             {/* Live Update Status Banner */}
             <div className="update-status-box">
               {status.state === 'Checking' && (
                 <div className="status-item checking">
-                  <RotateCw size={13} className="spin gold" />
+                  <RotateCw size={13} className="spin text-accent" />
                   <span>Checking update servers for {status.channel} releases...</span>
+                </div>
+              )}
+
+              {status.state === 'Idle' && (
+                <div className="status-item uptodate">
+                  <CheckCircle2 size={13} className="text-emerald" />
+                  <span>Up to date (v{status.currentVersion}).</span>
                 </div>
               )}
 
               {status.state === 'Up To Date' && (
                 <div className="status-item uptodate">
-                  <CheckCircle2 size={13} className="green" />
+                  <CheckCircle2 size={13} className="text-emerald" />
                   <span>Appu is up to date (v{status.currentVersion}).</span>
                 </div>
               )}
@@ -394,11 +308,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {status.state === 'Update Available' && status.updateInfo && (
                 <div className="status-item available">
                   <div className="available-header">
-                    <Sparkles size={14} className="gold" />
+                    <Sparkles size={14} className="text-accent" />
                     <span className="available-title">
                       v{status.updateInfo.version} Available
                     </span>
-                    <button className="download-cta-btn" onClick={handleDownload}>
+                    <button type="button" className="download-cta-btn" onClick={handleDownload}>
                       <Download size={12} />
                       <span>Download</span>
                     </button>
@@ -407,6 +321,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {status.updateInfo.releaseNotes && (
                     <div className="settings-notes-container">
                       <button
+                        type="button"
                         className="settings-notes-btn"
                         onClick={() => setShowNotes(!showNotes)}
                       >
@@ -447,10 +362,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {status.state === 'Downloaded' && (
                 <div className="status-item downloaded">
                   <div className="downloaded-content">
-                    <CheckCircle2 size={14} className="green" />
+                    <CheckCircle2 size={14} className="text-emerald" />
                     <span>v{status.updateInfo?.version || ''} ready to install.</span>
                   </div>
-                  <button className="restart-cta-btn" onClick={handleInstall}>
+                  <button type="button" className="restart-cta-btn" onClick={handleInstall}>
                     <RotateCw size={12} />
                     <span>Restart Now</span>
                   </button>
@@ -460,10 +375,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {status.state === 'Error' && (
                 <div className="status-item error">
                   <div className="error-text-row">
-                    <AlertCircle size={13} className="red" />
+                    <AlertCircle size={13} className="text-rose" />
                     <span className="error-msg">{status.error || 'Update check failed.'}</span>
                   </div>
-                  <button className="retry-btn" onClick={handleCheck}>
+                  <button type="button" className="retry-btn" onClick={handleCheck}>
                     Retry
                   </button>
                 </div>
@@ -476,21 +391,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <span className="group-label">Keyboard Shortcuts</span>
             <div className="shortcut-row">
               <span className="shortcut-desc">Show / Hide Appu</span>
-              <span className="shortcut-key">⌘ H</span>
+              <kbd className="shortcut-kbd">⌘ H</kbd>
             </div>
             <div className="shortcut-row">
               <span className="shortcut-desc">Open Interaction Menu</span>
-              <span className="shortcut-key">Click Appu</span>
+              <kbd className="shortcut-kbd">Click Appu</kbd>
             </div>
             <div className="shortcut-row">
               <span className="shortcut-desc">Global Restore Shortcut</span>
-              <span className="shortcut-key">⌘ ⇧ A</span>
+              <kbd className="shortcut-kbd">⌘ ⇧ A</kbd>
             </div>
           </div>
         </div>
 
         <div className="settings-footer">
-          <button className="settings-done-btn" onClick={onClose}>
+          <button type="button" className="settings-done-btn" onClick={onClose}>
             Done
           </button>
         </div>

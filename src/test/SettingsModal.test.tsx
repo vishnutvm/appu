@@ -22,8 +22,6 @@ describe('SettingsModal Component - Software Updates', () => {
       <SettingsModal
         isOpen={true}
         onClose={vi.fn()}
-        isPinned={false}
-        onTogglePin={vi.fn()}
         updaterStatus={baseStatus}
       />
     );
@@ -34,13 +32,11 @@ describe('SettingsModal Component - Software Updates', () => {
     expect(screen.getByText('Save Names')).toBeInTheDocument();
   });
 
-  it('renders software updates section with version and channel info', () => {
+  it('renders software updates section with version and channel info without automatic updates row', () => {
     render(
       <SettingsModal
         isOpen={true}
         onClose={vi.fn()}
-        isPinned={false}
-        onTogglePin={vi.fn()}
         updaterStatus={baseStatus}
       />
     );
@@ -48,7 +44,7 @@ describe('SettingsModal Component - Software Updates', () => {
     expect(screen.getByText('Software Updates')).toBeInTheDocument();
     expect(screen.getByText(/Appu v1.0.0 • Channel: stable/i)).toBeInTheDocument();
     expect(screen.getByText('Check Now')).toBeInTheDocument();
-    expect(screen.getByText('Automatic Updates')).toBeInTheDocument();
+    expect(screen.queryByText('Automatic Updates')).not.toBeInTheDocument();
   });
 
   it('allows switching update channel to Beta', () => {
@@ -57,8 +53,6 @@ describe('SettingsModal Component - Software Updates', () => {
       <SettingsModal
         isOpen={true}
         onClose={vi.fn()}
-        isPinned={false}
-        onTogglePin={vi.fn()}
         updaterStatus={baseStatus}
         onSetChannel={onSetChannel}
       />
@@ -75,8 +69,6 @@ describe('SettingsModal Component - Software Updates', () => {
       <SettingsModal
         isOpen={true}
         onClose={vi.fn()}
-        isPinned={false}
-        onTogglePin={vi.fn()}
         updaterStatus={baseStatus}
         onCheckUpdates={onCheckUpdates}
       />
@@ -91,8 +83,6 @@ describe('SettingsModal Component - Software Updates', () => {
       <SettingsModal
         isOpen={true}
         onClose={vi.fn()}
-        isPinned={false}
-        onTogglePin={vi.fn()}
         updaterStatus={{ ...baseStatus, state: 'Checking' }}
       />
     );
@@ -107,8 +97,6 @@ describe('SettingsModal Component - Software Updates', () => {
       <SettingsModal
         isOpen={true}
         onClose={vi.fn()}
-        isPinned={false}
-        onTogglePin={vi.fn()}
         updaterStatus={{
           ...baseStatus,
           state: 'Update Available',
@@ -130,8 +118,6 @@ describe('SettingsModal Component - Software Updates', () => {
       <SettingsModal
         isOpen={true}
         onClose={vi.fn()}
-        isPinned={false}
-        onTogglePin={vi.fn()}
         updaterStatus={{
           ...baseStatus,
           state: 'Downloaded',
@@ -147,26 +133,18 @@ describe('SettingsModal Component - Software Updates', () => {
     expect(onInstallUpdate).toHaveBeenCalledTimes(1);
   });
 
-  it('renders free fall toggle and allows disabling free fall physics', () => {
-    const onToggleFreeFall = vi.fn();
+  it('does not render Companion Behavior section', () => {
     render(
       <SettingsModal
         isOpen={true}
         onClose={vi.fn()}
-        isPinned={false}
-        onTogglePin={vi.fn()}
-        freeFallEnabled={true}
-        onToggleFreeFall={onToggleFreeFall}
         updaterStatus={baseStatus}
       />
     );
 
-    expect(screen.getByText('Free Fall & Throw Physics')).toBeInTheDocument();
-    const toggle = screen.getByLabelText('Toggle Free Fall Physics');
-    expect(toggle).toBeInTheDocument();
-    expect(toggle).toHaveAttribute('aria-checked', 'true');
-
-    fireEvent.click(toggle);
-    expect(onToggleFreeFall).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Companion Behavior')).not.toBeInTheDocument();
+    expect(screen.queryByText('Stay on Screen (Pin)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Free Fall & Throw Physics')).not.toBeInTheDocument();
+    expect(screen.queryByText('Autonomous Roaming')).not.toBeInTheDocument();
   });
 });
