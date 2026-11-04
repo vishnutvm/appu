@@ -212,6 +212,39 @@ describe('Reminders System', () => {
       expect(screen.getByText(/At 5:30 PM/i)).toBeInTheDocument();
     });
 
+    it('allows setting reminder for a particular date (e.g. Tomorrow)', () => {
+      render(<RemindersModal isOpen={true} onClose={vi.fn()} />);
+      const scheduleTrigger = screen.getByTitle('Change schedule interval or time');
+      fireEvent.click(scheduleTrigger);
+
+      // Switch to At Time tab
+      fireEvent.click(screen.getByText('At Time'));
+
+      // Click Particular Date toggle
+      fireEvent.click(screen.getByText('Particular Date'));
+
+      // Click Tomorrow quick pill
+      fireEvent.click(screen.getByText('Tomorrow'));
+
+      // Check trigger updates to Tomorrow
+      expect(screen.getByText(/Tomorrow at/i)).toBeInTheDocument();
+    });
+
+    it('allows switching back to Daily recurrence', () => {
+      render(<RemindersModal isOpen={true} onClose={vi.fn()} />);
+      const scheduleTrigger = screen.getByTitle('Change schedule interval or time');
+      fireEvent.click(scheduleTrigger);
+
+      // Switch to At Time tab
+      fireEvent.click(screen.getByText('At Time'));
+
+      // Click Particular Date, then back to Daily
+      fireEvent.click(screen.getByText('Particular Date'));
+      fireEvent.click(screen.getByText('Daily'));
+
+      expect(scheduleTrigger).toHaveTextContent(/At 4:00 PM/i);
+    });
+
     it('closes on close button click and escape key', () => {
       const onClose = vi.fn();
       render(<RemindersModal isOpen={true} onClose={onClose} />);

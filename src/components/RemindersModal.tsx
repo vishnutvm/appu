@@ -124,6 +124,14 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
   const [intervalValue, setIntervalValue] = useState(45);
   const [intervalUnit, setIntervalUnit] = useState<'m' | 'h'>('m');
   const [specificTime, setSpecificTime] = useState('16:00');
+  const [dateScheduleMode, setDateScheduleMode] = useState<'daily' | 'particular_date'>('daily');
+  const [specificDate, setSpecificDate] = useState<string>(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  });
   const [showSchedulePopover, setShowSchedulePopover] = useState(false);
 
   // Flexible Schedule for Edit Modal
@@ -133,8 +141,45 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
   const [editIntervalValue, setEditIntervalValue] = useState(45);
   const [editIntervalUnit, setEditIntervalUnit] = useState<'m' | 'h'>('m');
   const [editSpecificTime, setEditSpecificTime] = useState('16:00');
+  const [editDateScheduleMode, setEditDateScheduleMode] = useState<'daily' | 'particular_date'>('daily');
+  const [editSpecificDate, setEditSpecificDate] = useState<string>(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  });
 
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const getTodayDateStr = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const getTomorrowDateStr = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const formatDateDisplay = (dateStr?: string) => {
+    if (!dateStr) return '';
+    const today = getTodayDateStr();
+    const tomorrow = getTomorrowDateStr();
+    if (dateStr === today) return 'Today';
+    if (dateStr === tomorrow) return 'Tomorrow';
+    const [y, m, d] = dateStr.split('-').map(Number);
+    if (!y || !m || !d) return dateStr;
+    const dateObj = new Date(y, m - 1, d);
+    return dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  };
 
   const formatTimeDisplay = (timeStr?: string) => {
     if (!timeStr) return '4:00 PM';
@@ -152,7 +197,9 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
     type: 'interval' | 'specific_time',
     val: number,
     unit: 'm' | 'h',
-    timeStr: string
+    timeStr: string,
+    mode: 'daily' | 'particular_date' = 'daily',
+    dateStr?: string
   ) => {
     if (type === 'interval') {
       if (unit === 'h') {
@@ -162,6 +209,9 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
         return `Every ${val / 60}h`;
       }
       return `Every ${val}m`;
+    }
+    if (mode === 'particular_date' && dateStr) {
+      return `${formatDateDisplay(dateStr)} at ${formatTimeDisplay(timeStr)}`;
     }
     return `At ${formatTimeDisplay(timeStr)}`;
   };
@@ -210,6 +260,13 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
     if (reminder.type === 'specific_time' && reminder.specificTime) {
       setEditScheduleType('specific_time');
       setEditSpecificTime(reminder.specificTime);
+      if (reminder.specificDate) {
+        setEditDateScheduleMode('particular_date');
+        setEditSpecificDate(reminder.specificDate);
+      } else {
+        setEditDateScheduleMode('daily');
+        setEditSpecificDate(getTodayDateStr());
+      }
     } else {
       setEditScheduleType('interval');
       const mins = reminder.intervalMinutes || 45;
@@ -232,10 +289,12 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
     if (!trimmedTitle) return;
 
     if (editScheduleType === 'specific_time') {
+      const isParticular = editDateScheduleMode === 'particular_date';
       manager.updateReminder(editingReminder.id, {
         title: trimmedTitle,
         type: 'specific_time',
         specificTime: editSpecificTime || '16:00',
+        specificDate: isParticular ? editSpecificDate : undefined,
         intervalMinutes: undefined,
       });
     } else {
@@ -248,6 +307,7 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
         type: 'interval',
         intervalMinutes: mins,
         specificTime: undefined,
+        specificDate: undefined,
       });
     }
 
@@ -261,10 +321,12 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
 
     const taskTitle = title.trim();
     if (scheduleType === 'specific_time') {
+      const isParticular = dateScheduleMode === 'particular_date';
       manager.addReminder({
         title: taskTitle,
         type: 'specific_time',
         specificTime: specificTime || '16:00',
+        specificDate: isParticular ? specificDate : undefined,
       });
     } else {
       const mins = Math.max(
@@ -459,7 +521,56 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
                 </div>
               ) : (
                 <div className="edit-form-field">
-                  <label className="edit-form-label">PICK TIME OF DAY</label>
+                  <label className="edit-form-label">SCHEDULE RECURRENCE & TIME</label>
+
+                  <div className="schedule-mode-selector">
+                    <button
+                      type="button"
+                      className={`schedule-mode-pill ${editDateScheduleMode === 'daily' ? 'active' : ''}`}
+                      onClick={() => setEditDateScheduleMode('daily')}
+                    >
+                      <Repeat size={11} />
+                      <span>Daily</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`schedule-mode-pill ${editDateScheduleMode === 'particular_date' ? 'active' : ''}`}
+                      onClick={() => setEditDateScheduleMode('particular_date')}
+                    >
+                      <Calendar size={11} />
+                      <span>Particular Date</span>
+                    </button>
+                  </div>
+
+                  {editDateScheduleMode === 'particular_date' && (
+                    <div className="date-picker-section">
+                      <div className="date-quick-pills">
+                        <button
+                          type="button"
+                          className={`preset-pill ${editSpecificDate === getTodayDateStr() ? 'selected' : ''}`}
+                          onClick={() => setEditSpecificDate(getTodayDateStr())}
+                        >
+                          Today
+                        </button>
+                        <button
+                          type="button"
+                          className={`preset-pill ${editSpecificDate === getTomorrowDateStr() ? 'selected' : ''}`}
+                          onClick={() => setEditSpecificDate(getTomorrowDateStr())}
+                        >
+                          Tomorrow
+                        </button>
+                        <input
+                          type="date"
+                          aria-label="Edit Specific Date"
+                          className="particular-date-input"
+                          value={editSpecificDate}
+                          min={getTodayDateStr()}
+                          onChange={(e) => setEditSpecificDate(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="time-picker-row">
                     <CustomTimePicker
                       value={editSpecificTime}
@@ -660,7 +771,14 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
           >
             <Clock size={13} className="trigger-clock-icon" />
             <span className="trigger-label">
-              {getScheduleDisplay(scheduleType, intervalValue, intervalUnit, specificTime)}
+              {getScheduleDisplay(
+                scheduleType,
+                intervalValue,
+                intervalUnit,
+                specificTime,
+                dateScheduleMode,
+                specificDate
+              )}
             </span>
             <ChevronDown size={13} className="trigger-chevron" />
           </button>
@@ -763,6 +881,54 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
               </div>
             ) : (
               <div className="inline-panel-content">
+                <div className="schedule-mode-selector">
+                  <button
+                    type="button"
+                    className={`schedule-mode-pill ${dateScheduleMode === 'daily' ? 'active' : ''}`}
+                    onClick={() => setDateScheduleMode('daily')}
+                  >
+                    <Repeat size={11} />
+                    <span>Daily</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`schedule-mode-pill ${dateScheduleMode === 'particular_date' ? 'active' : ''}`}
+                    onClick={() => setDateScheduleMode('particular_date')}
+                  >
+                    <Calendar size={11} />
+                    <span>Particular Date</span>
+                  </button>
+                </div>
+
+                {dateScheduleMode === 'particular_date' && (
+                  <div className="date-picker-section">
+                    <div className="date-quick-pills">
+                      <button
+                        type="button"
+                        className={`preset-pill ${specificDate === getTodayDateStr() ? 'selected' : ''}`}
+                        onClick={() => setSpecificDate(getTodayDateStr())}
+                      >
+                        Today
+                      </button>
+                      <button
+                        type="button"
+                        className={`preset-pill ${specificDate === getTomorrowDateStr() ? 'selected' : ''}`}
+                        onClick={() => setSpecificDate(getTomorrowDateStr())}
+                      >
+                        Tomorrow
+                      </button>
+                      <input
+                        type="date"
+                        aria-label="Pick Specific Date"
+                        className="particular-date-input"
+                        value={specificDate}
+                        min={getTodayDateStr()}
+                        onChange={(e) => setSpecificDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div className="time-picker-row">
                   <CustomTimePicker
                     value={specificTime}
@@ -824,7 +990,9 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
                                 ? r.intervalMinutes / 60 + 'h'
                                 : r.intervalMinutes + 'm'
                             }`
-                          : `At ${formatTimeDisplay(r.specificTime)}`}
+                          : r.specificDate
+                          ? `${formatDateDisplay(r.specificDate)} at ${formatTimeDisplay(r.specificTime)}`
+                          : `Daily at ${formatTimeDisplay(r.specificTime)}`}
                         {r.enabled && ` • ${formatCountdown(r.nextTriggerAt)}`}
                       </span>
                     </div>

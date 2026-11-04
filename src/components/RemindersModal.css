@@ -1154,3 +1154,82 @@
 .edit-save-btn:active {
   transform: translateY(0);
 }
+
+/* Schedule Recurrence & Date Picker Controls */
+.schedule-mode-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 3px;
+  margin-bottom: 8px;
+}
+
+.schedule-mode-pill {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.schedule-mode-pill:hover {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.schedule-mode-pill.active {
+  background: rgba(246, 195, 68, 0.14);
+  color: #f6c344;
+  border-color: rgba(246, 195, 68, 0.35);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.date-picker-section {
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.date-quick-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.particular-date-input {
+  flex: 1;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 2px 8px;
+  outline: none;
+  color-scheme: dark;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.particular-date-input:focus {
+  border-color: rgba(246, 195, 68, 0.45);
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 2px rgba(246, 195, 68, 0.15);
+}
+
