@@ -1,0 +1,180 @@
+/* =========================================================================
+   MINIMAL CRISP DESKTOP COMPANION CONTEXT MENU
+   Compact, dark graphite, native popup menu with grouped submenus
+   ========================================================================= */
+
+.interaction-menu-card.minimal {
+  position: relative;
+  width: 154px;
+  background: rgba(18, 22, 32, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75), 0 0 1px rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  color: #f1f5f9;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+  z-index: 1000;
+  pointer-events: auto;
+  animation: minimal-menu-fade 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+@keyframes minimal-menu-fade {
+  0% {
+    opacity: 0;
+    transform: scale(0.97) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.minimal-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.menu-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #e2e8f0;
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+  line-height: 1.2;
+  position: relative;
+}
+
+.menu-item-row:hover {
+  background: rgba(246, 195, 68, 0.18);
+  color: #f6c344;
+}
+
+.menu-item-row.is-submenu-open {
+  background: rgba(246, 195, 68, 0.18);
+  color: #f6c344;
+}
+
+.menu-item-row.is-active {
+  color: #f6c344;
+  font-weight: 600;
+}
+
+.menu-item-row.is-disabled {
+  opacity: 0.35;
+  pointer-events: none;
+  cursor: default;
+}
+
+.menu-item-row.is-danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.item-title {
+  font-size: 12px;
+  letter-spacing: -0.1px;
+}
+
+.submenu-arrow {
+  font-size: 13px;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-left: auto;
+  padding-left: 6px;
+  transition: transform 0.1s ease;
+}
+
+.menu-item-row:hover .submenu-arrow,
+.menu-item-row.is-submenu-open .submenu-arrow {
+  color: #f6c344;
+  transform: translateX(1px);
+}
+
+/* Submenu Flyout Floating Container */
+.submenu-flyout {
+  position: absolute;
+  top: -4px;
+  left: calc(100% + 6px);
+  min-width: 140px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  background: rgba(18, 22, 32, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.82), 0 0 1px rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  z-index: 1020;
+  animation: submenu-pop 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: auto;
+}
+
+.submenu-flyout::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Fallback: when menu is on right edge, pop out to the left */
+.menu-h-left .submenu-flyout {
+  left: auto;
+  right: calc(100% + 6px);
+}
+
+@keyframes submenu-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.96) translateX(-3px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateX(0);
+  }
+}
+
+.key-hint {
+  font-size: 10px;
+  color: #64748b;
+  font-family: var(--font-mono, monospace);
+  font-weight: 500;
+}
+
+.status-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  line-height: 14px;
+}
+
+.status-pill.on {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+
+.status-pill.off {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+.menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 3px 4px;
+}

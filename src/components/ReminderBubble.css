@@ -1,0 +1,340 @@
+/* -------------------------------------------------------------
+   REFINED COMPANION REMINDER SPEECH BUBBLE
+   - Never overlaps Appu's head or face
+   - High-contrast frosted glass with gold/cyan accents
+   - Directional speech balloon tail pointing right at Appu
+   - Rich interactive states (Done, Snooze 5m, Celebrating)
+-------------------------------------------------------------- */
+
+.reminder-speech-bubble {
+  position: absolute;
+  width: 320px;
+  background: rgba(10, 17, 30, 0.94);
+  border: 1.5px solid rgba(246, 195, 68, 0.55);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7),
+              0 0 28px rgba(246, 195, 68, 0.22),
+              inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  z-index: 50;
+  pointer-events: auto;
+  user-select: none;
+  animation: reminder-pop-in 0.38s cubic-bezier(0.175, 0.885, 0.32, 1.15) forwards;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+@keyframes reminder-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.9) translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.reminder-speech-bubble.celebrating-state {
+  border-color: rgba(0, 210, 238, 0.8);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7),
+              0 0 35px rgba(0, 210, 238, 0.4),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* -------------------------------------------------------------
+   SPEECH TAIL POINTER (Connecting the bubble to Appu's face)
+-------------------------------------------------------------- */
+.reminder-speech-bubble.tail-right .speech-tail-point {
+  position: absolute;
+  top: 36px;
+  right: -11px;
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 11px solid rgba(246, 195, 68, 0.75);
+  filter: drop-shadow(2px 0 3px rgba(0, 0, 0, 0.4));
+}
+
+.reminder-speech-bubble.tail-right .speech-tail-point::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: -11px;
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-left: 10px solid #0a111e;
+}
+
+.reminder-speech-bubble.tail-left .speech-tail-point {
+  position: absolute;
+  top: 36px;
+  left: -11px;
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-right: 11px solid rgba(246, 195, 68, 0.75);
+  filter: drop-shadow(-2px 0 3px rgba(0, 0, 0, 0.4));
+}
+
+.reminder-speech-bubble.tail-left .speech-tail-point::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: 1px;
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-right: 10px solid #0a111e;
+}
+
+/* -------------------------------------------------------------
+   HEADER & BOT AVATAR
+-------------------------------------------------------------- */
+.bubble-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.bubble-author-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.appu-avatar-badge {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 30%, #1a2744 0%, #070d19 100%);
+  border: 1px solid rgba(246, 195, 68, 0.4);
+  box-shadow: 0 0 10px rgba(0, 210, 238, 0.25);
+  flex-shrink: 0;
+}
+
+.appu-avatar-badge.celebrating {
+  border-color: #00d2ee;
+  box-shadow: 0 0 14px rgba(0, 210, 238, 0.6);
+  animation: avatar-wiggle 0.45s ease infinite alternate;
+}
+
+@keyframes avatar-wiggle {
+  0% { transform: rotate(-6deg) scale(1.05); }
+  100% { transform: rotate(6deg) scale(1.05); }
+}
+
+.avatar-eye {
+  animation: eye-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes eye-pulse {
+  0%, 100% { opacity: 0.95; filter: drop-shadow(0 0 2px #00d2ee); }
+  50% { opacity: 0.7; filter: drop-shadow(0 0 1px #00d2ee); }
+}
+
+.avatar-status-dot {
+  position: absolute;
+  bottom: 0px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  border: 1.5px solid #0a111e;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.bubble-author-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.bubble-author-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.2px;
+}
+
+.bubble-author-role {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-gold);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.bubble-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bubble-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 3px 8px;
+  border-radius: 12px;
+}
+
+.bubble-badge .badge-icon {
+  color: var(--accent-gold);
+}
+
+.bubble-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  transition: all 0.15s ease;
+}
+
+.bubble-close-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* -------------------------------------------------------------
+   TASK CARD & TITLE
+-------------------------------------------------------------- */
+.bubble-task-container {
+  background: rgba(246, 195, 68, 0.07);
+  border: 1px solid rgba(246, 195, 68, 0.25);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 9px;
+}
+
+.bubble-task-lead {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--accent-gold);
+  margin-bottom: 2px;
+}
+
+.bubble-task-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+/* -------------------------------------------------------------
+   COMPANION VOICE / MESSAGE
+-------------------------------------------------------------- */
+.bubble-message {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #cbd5e1;
+  margin-bottom: 12px;
+  font-weight: 450;
+}
+
+/* -------------------------------------------------------------
+   ACTION BUTTONS
+-------------------------------------------------------------- */
+.bubble-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.bubble-action-primary {
+  flex: 1.3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #00d2ee 0%, #05a7be 100%);
+  border: none;
+  color: #03131c;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 0 14px rgba(0, 210, 238, 0.38);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bubble-action-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #38e4fb 0%, #00d2ee 100%);
+  box-shadow: 0 0 18px rgba(0, 210, 238, 0.55);
+  transform: translateY(-1px);
+}
+
+.bubble-action-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.bubble-action-primary.celebrating {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #ffffff;
+  box-shadow: 0 0 18px rgba(16, 185, 129, 0.5);
+}
+
+.bubble-action-secondary {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #cbd5e1;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.bubble-action-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.13);
+  color: #ffffff;
+  border-color: rgba(246, 195, 68, 0.4);
+  transform: translateY(-1px);
+}
+
+.bubble-action-secondary:disabled,
+.bubble-action-primary:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.action-icon-spin {
+  animation: spin-once 0.6s ease forwards;
+}
+
+@keyframes spin-once {
+  0% { transform: rotate(0deg) scale(0.8); }
+  50% { transform: rotate(180deg) scale(1.2); }
+  100% { transform: rotate(360deg) scale(1); }
+}

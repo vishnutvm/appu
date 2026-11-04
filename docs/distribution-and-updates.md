@@ -205,7 +205,7 @@ For private distribution where release assets cannot be public on GitHub:
 
 ## 9. Local Build & Test Commands
 
-Run these commands inside the `appu-3d/` directory:
+Run these commands from the project root:
 
 ```bash
 # 1. Install dependencies
@@ -237,8 +237,6 @@ npm run dist:win
 To release a new version:
 
 ```bash
-cd appu-3d
-
 # 1. Bump version and update package.json & package-lock.json
 # Options: patch | minor | major | beta
 npm run version:bump patch

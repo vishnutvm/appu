@@ -1,10 +1,6 @@
-.venv/
-__pycache__/
-*.py[cod]
-.env
+node_modules/
+dist/
+dist-electron/
+release/
 .DS_Store
-.pytest_cache/
-.ruff_cache/
-logs/
-data/
-models/
+*.local

@@ -1,0 +1,578 @@
+import { AppuAnimationState, AppuEmotion } from '../types/character';
+import { DesktopPhysicsEngine, ScreenBounds } from './DesktopPhysicsEngine';
+
+interface MovementControllerOptions {
+  onStateChange: (state: AppuAnimationState, emotion: AppuEmotion, facingRotation: number) => void;
+  speedMultiplier?: number;
+}
+
+export type CompanionState =
+  | 'INITIALIZING'
+  | 'RESTING'
+  | 'BEING_DRAGGED'
+  | 'IN_FREE_FALL'
+  | 'STROLLING_TO_NOTIFY'
+  | 'PRESENTING_NOTIFICATION'
+  | 'RETURNING_HOME';
+
+// Calibrated speed threshold (px/s) to distinguish normal dragging from a deliberate fast flick/throw
+export const FLICK_SPEED_THRESHOLD = 1350;
+
+export class DesktopMovementController {
+  private currentState: CompanionState = 'INITIALIZING';
+  private speed: number = 100; // pixels per second on screen
+  private screenWidth: number = 1600;
+  private screenHeight: number = 900;
+  private workAreaX: number = 0;
+  private workAreaY: number = 0;
+
+  // Home corner coordinates (bottom-right of display)
+  private homeX: number = 1280;
+  private homeY: number = 540;
+
+  // Notification target coordinates (strolls inward into peripheral sight)
+  private strollX: number = 960;
+  private strollY: number = 540;
+
+  private isWalking: boolean = false;
+  private isPinned: boolean = false;
+  private currentWalkInterval: any = null;
+  private settleTimer: any = null;
+  private stateChangeCallback: MovementControllerOptions['onStateChange'];
+
+  // Physics Engine instance
+  private physicsEngine: DesktopPhysicsEngine;
+  private physicsInterval: any = null;
+  private lastPhysicsTickTime: number = 0;
+  private freeFallEnabled: boolean = true;
+
+  // Event listeners for window drag/drop
+  private onDragStartListener = () => {
+    this.stopWalking();
+    this.stopPhysicsLoop();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.currentState = 'BEING_DRAGGED';
+  };
+
+  private onReleasedListener = (e: any) => {
+    const vel = e?.detail || { vx: 0, vy: 0 };
+    const speed = Math.hypot(vel.vx, vel.vy);
+
+    // If flicked with high speed and free-fall physics is enabled:
+    if (this.freeFallEnabled && speed >= FLICK_SPEED_THRESHOLD) {
+      this.startFreeFallPhysics(vel.vx, vel.vy);
+    } else {
+      // Normal drag & place or free fall disabled: Appu stays smoothly right where placed!
+      this.stopWalking();
+      this.stopPhysicsLoop();
+      if (this.settleTimer) clearTimeout(this.settleTimer);
+      this.currentState = 'RESTING';
+      this.stateChangeCallback('idle', 'happy', 0);
+      this.handleUserDropped();
+    }
+  };
+
+  private onDroppedListener = () => {
+    this.stopWalking();
+    this.stopPhysicsLoop();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.currentState = 'RESTING';
+    this.stateChangeCallback('sit', 'sleepy', 0);
+    this.handleUserDropped();
+  };
+
+  constructor(options: MovementControllerOptions) {
+    this.stateChangeCallback = options.onStateChange;
+    this.physicsEngine = new DesktopPhysicsEngine();
+    this.initScreen();
+
+    // Setup physics callbacks
+    this.physicsEngine.setCallbacks({
+      onStateChange: (st) => {
+        if (st === 'FALLING') {
+          this.stateChangeCallback('falling', 'surprised', 0);
+        } else if (st === 'RISING') {
+          this.stateChangeCallback('rising', 'surprised', 0);
+        } else if (st === 'LANDING') {
+          this.stateChangeCallback('landing', 'surprised', 0);
+        } else if (st === 'BOUNCING') {
+          this.stateChangeCallback('bouncing', 'surprised', 0);
+        } else if (st === 'RECOVERING') {
+          this.stateChangeCallback('recovering', 'curious', 0);
+        } else if (st === 'IDLE') {
+          this.stopPhysicsLoop();
+          this.currentState = 'RESTING';
+          this.stateChangeCallback('idle', 'happy', 0);
+          this.handleUserDropped();
+        }
+      },
+    });
+
+    // Listen for drag & drop events
+    if (typeof window !== 'undefined') {
+      window.addEventListener('appu-drag-start', this.onDragStartListener);
+      window.addEventListener('appu-released-with-velocity', this.onReleasedListener);
+      window.addEventListener('appu-dropped-by-user', this.onDroppedListener);
+    }
+
+    // Listen for physical screen edge collisions to prevent walking into walls
+    if (window.desktopAPI?.onScreenEdgeBump) {
+      window.desktopAPI.onScreenEdgeBump((_data) => {
+        if (this.isWalking) {
+          this.stopWalking();
+        }
+      });
+    }
+  }
+
+  private async initScreen() {
+    if (window.desktopAPI?.getScreenBounds) {
+      try {
+        const bounds = await window.desktopAPI.getScreenBounds();
+        this.screenWidth = bounds.width;
+        this.screenHeight = bounds.height;
+        this.workAreaX = bounds.x;
+        this.workAreaY = bounds.y;
+      } catch (e) {
+        this.screenWidth = window.screen.availWidth || 1600;
+        this.screenHeight = window.screen.availHeight || 900;
+      }
+    } else {
+      this.screenWidth = window.screen.availWidth || 1600;
+      this.screenHeight = window.screen.availHeight || 900;
+    }
+
+    const INSET_RIGHT = 50;
+    const INSET_BOTTOM = 42;
+    const INSET_LEFT = 50;
+    const INSET_TOP = 36;
+
+    // Calculate Home Corner (bottom-right: Appu feet directly on bottom edge, right side near corner)
+    this.homeX = Math.round(this.workAreaX + this.screenWidth - 220 + INSET_RIGHT - 10);
+    this.homeY = Math.round(this.workAreaY + this.screenHeight - 300 + INSET_BOTTOM);
+
+    // Calculate Notification presentation spot (~260px inward from corner)
+    this.strollX = Math.round(Math.max(this.workAreaX + 100, this.homeX - 260));
+    this.strollY = this.homeY;
+
+    // Set screen bounds for Physics Engine
+    const minX = Math.round(this.workAreaX - INSET_LEFT);
+    const maxX = Math.round(this.workAreaX + this.screenWidth - 220 + INSET_RIGHT);
+    const minY = Math.round(this.workAreaY - INSET_TOP);
+    const floorY = Math.round(this.workAreaY + this.screenHeight - 300 + INSET_BOTTOM);
+
+    this.physicsEngine.setBounds({
+      minX,
+      maxX,
+      minY,
+      floorY,
+    });
+  }
+
+  public getIsPinned(): boolean {
+    return this.isPinned;
+  }
+
+  public setIsPinned(pinned: boolean) {
+    this.isPinned = pinned;
+  }
+
+  public getFreeFallEnabled(): boolean {
+    return this.freeFallEnabled;
+  }
+
+  public setFreeFallEnabled(enabled: boolean) {
+    this.freeFallEnabled = enabled;
+    if (!enabled) {
+      this.stopPhysicsLoop();
+    }
+  }
+
+  public getCurrentState(): CompanionState {
+    return this.currentState;
+  }
+
+  /**
+   * Starts companion routine: Appu briefly greets, then rests peacefully in Home Corner.
+   */
+  public async startCompanionRoutine() {
+    await this.initScreen();
+
+    // Friendly initial greeting
+    this.stateChangeCallback('wave', 'happy', 0);
+
+    this.settleTimer = setTimeout(() => {
+      this.currentState = 'RESTING';
+      this.stateChangeCallback('sit', 'sleepy', 0);
+    }, 2400);
+  }
+
+  /**
+   * When user drops Appu anywhere on the screen:
+   * Appu stays right at that position! He looks around curiously, then rests peacefully.
+   * Never walks down to the bottom corner or drops down.
+   */
+  public handleUserDropped() {
+    this.stopWalking();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+
+    this.currentState = 'RESTING';
+    // Sit peacefully right where placed or landed
+    this.stateChangeCallback('sit', 'sleepy', 0);
+  }
+
+  /**
+   * Called when a reminder arrives: Appu wakes up, strolls into view, waves, and shows bubble.
+   */
+  public async triggerReminderStroll(onArrived: () => void) {
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.stopWalking();
+    this.currentState = 'STROLLING_TO_NOTIFY';
+
+    // Wake up with happy expression
+    this.stateChangeCallback('idle', 'happy', 0);
+
+    setTimeout(() => {
+      this.walkTo(this.strollX, this.strollY, () => {
+        this.currentState = 'PRESENTING_NOTIFICATION';
+        // Face forward and wave
+        this.stateChangeCallback('wave', 'happy', 0);
+        onArrived();
+      });
+    }, 500);
+  }
+
+  /**
+   * Called when notification is dismissed: waves goodbye and walks back to home corner.
+   */
+  public dismissAndReturnHome() {
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.stopWalking();
+
+    // Wave goodbye
+    this.stateChangeCallback('wave', 'happy', 0);
+
+    setTimeout(() => {
+      this.currentState = 'RETURNING_HOME';
+      this.walkTo(this.homeX, this.homeY, () => {
+        this.currentState = 'RESTING';
+        this.stateChangeCallback('sit', 'sleepy', 0);
+      });
+    }, 1200);
+  }
+
+  /**
+   * Sticks / pins Appu to the closest screen edge without clipping.
+   */
+  public async stickToEdge(onDone?: () => void) {
+    this.stopWalking();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.isPinned = true;
+
+    let currentX = 0;
+    let currentY = 0;
+    if (window.desktopAPI?.getWindowPosition) {
+      try {
+        const pos = await window.desktopAPI.getWindowPosition();
+        currentX = pos.x;
+        currentY = pos.y;
+      } catch (e) {}
+    }
+
+    const INSET_LEFT = 50;
+    const INSET_RIGHT = 50;
+
+    // Determine whether left border or right border is closest
+    const distToLeft = Math.abs(currentX - (this.workAreaX - INSET_LEFT));
+    const distToRight = Math.abs(currentX - (this.workAreaX + this.screenWidth - 220 + INSET_RIGHT));
+
+    const targetX = distToLeft < distToRight
+      ? this.workAreaX - INSET_LEFT + 6 // Touch left screen edge cleanly
+      : this.workAreaX + this.screenWidth - 220 + INSET_RIGHT - 6; // Touch right screen edge cleanly
+
+    const targetY = currentY;
+
+    this.walkTo(targetX, targetY, () => {
+      const inwardFacing = distToLeft < distToRight ? Math.PI / 4 : -Math.PI / 4;
+      this.stateChangeCallback('idle', 'happy', inwardFacing);
+      if (onDone) onDone();
+    });
+  }
+
+  /**
+   * Unsticks Appu from the edge and releases pin.
+   */
+  public async unstick(onDone?: () => void) {
+    this.stopWalking();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.isPinned = false;
+
+    let currentX = 0;
+    let currentY = 0;
+    if (window.desktopAPI?.getWindowPosition) {
+      try {
+        const pos = await window.desktopAPI.getWindowPosition();
+        currentX = pos.x;
+        currentY = pos.y;
+      } catch (e) {}
+    }
+
+    // Step inward from wall
+    const isNearLeft = currentX < this.workAreaX + 120;
+    const targetX = isNearLeft ? currentX + 140 : currentX - 140;
+
+    this.walkTo(targetX, currentY, () => {
+      this.stateChangeCallback('wave', 'happy', 0);
+      setTimeout(() => {
+        this.stateChangeCallback('idle', 'happy', 0);
+        if (onDone) onDone();
+      }, 1200);
+    });
+  }
+
+  /**
+   * Disappears / tucks away out of the screen.
+   */
+  public async disappear(onDone?: () => void) {
+    this.stopWalking();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+
+    // Wave goodbye
+    this.stateChangeCallback('wave', 'happy', 0);
+
+    setTimeout(() => {
+      this.stateChangeCallback('sit', 'sleepy', 0);
+      if (onDone) onDone();
+    }, 1200);
+  }
+
+  /**
+   * Reappears back from hidden state with a joyful wave.
+   */
+  public async reappear(onDone?: () => void) {
+    this.stopWalking();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+
+    this.stateChangeCallback('wave', 'happy', 0);
+    setTimeout(() => {
+      this.stateChangeCallback('idle', 'happy', 0);
+      if (onDone) onDone();
+    }, 1800);
+  }
+
+  /**
+   * Manually walks back to Home Corner.
+   */
+  public walkToHomeCorner() {
+    this.stopWalking();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.walkTo(this.homeX, this.homeY, () => {
+      this.currentState = 'RESTING';
+      this.stateChangeCallback('sit', 'sleepy', 0);
+    });
+  }
+
+  /**
+   * Smoothly walks the window to target coordinates (targetX, targetY).
+   * ZERO React re-renders in the 60fps loop.
+   */
+  public async walkTo(targetX: number, targetY: number, onDone: () => void) {
+    this.stopWalking();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.isWalking = true;
+
+    let currentX = targetX;
+    let currentY = targetY;
+
+    if (window.desktopAPI?.getWindowPosition) {
+      try {
+        const pos = await window.desktopAPI.getWindowPosition();
+        currentX = pos.x;
+        currentY = pos.y;
+      } catch (e) {}
+    }
+
+    if (!this.isWalking) return;
+
+    const dx = targetX - currentX;
+    const dy = targetY - currentY;
+    const initialDist = Math.hypot(dx, dy);
+
+    if (initialDist <= 8) {
+      this.stopWalking();
+      this.stateChangeCallback('idle', 'happy', 0);
+      onDone();
+      return;
+    }
+
+    // Set walking animation and orientation ONCE at start
+    let currentFacingAngle = dx >= 0 ? Math.PI / 2 : -Math.PI / 2;
+    this.stateChangeCallback('walk', 'curious', currentFacingAngle);
+
+    const stepInterval = 16;
+    let accumulatedX = 0;
+    let accumulatedY = 0;
+
+    this.currentWalkInterval = setInterval(() => {
+      if (!this.isWalking) {
+        clearInterval(this.currentWalkInterval);
+        return;
+      }
+
+      const curDx = targetX - currentX;
+      const curDy = targetY - currentY;
+      const dist = Math.hypot(curDx, curDy);
+
+      if (dist <= 6) {
+        this.stopWalking();
+        // Face forward when arriving
+        this.stateChangeCallback('idle', 'happy', 0);
+        onDone();
+        return;
+      }
+
+      // Only update facing angle if direction flips
+      const targetFacing = curDx >= 0 ? Math.PI / 2 : -Math.PI / 2;
+      if (targetFacing !== currentFacingAngle) {
+        currentFacingAngle = targetFacing;
+        this.stateChangeCallback('walk', 'curious', currentFacingAngle);
+      }
+
+      const stepDist = (this.speed * (stepInterval / 1000));
+      const stepFraction = Math.min(1.0, stepDist / dist);
+      const stepX = curDx * stepFraction;
+      const stepY = curDy * stepFraction;
+
+      currentX += stepX;
+      currentY += stepY;
+
+      accumulatedX += stepX;
+      accumulatedY += stepY;
+
+      let sendX = 0;
+      let sendY = 0;
+
+      if (Math.abs(accumulatedX) >= 1) {
+        sendX = Math.trunc(accumulatedX);
+        accumulatedX -= sendX;
+      }
+      if (Math.abs(accumulatedY) >= 1) {
+        sendY = Math.trunc(accumulatedY);
+        accumulatedY -= sendY;
+      }
+
+      if ((sendX !== 0 || sendY !== 0) && window.desktopAPI?.moveWindowBy) {
+        window.desktopAPI.moveWindowBy(sendX, sendY);
+      }
+    }, stepInterval);
+  }
+
+  public stopWalking() {
+    this.isWalking = false;
+    if (this.currentWalkInterval) {
+      clearInterval(this.currentWalkInterval);
+      this.currentWalkInterval = null;
+    }
+  }
+
+  /**
+   * Begins free-fall physics simulation upon release.
+   */
+  public async startFreeFallPhysics(initialVx: number, initialVy: number) {
+    if (!this.freeFallEnabled) return;
+    this.stopWalking();
+    this.stopPhysicsLoop();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+
+    await this.initScreen();
+
+    let curX = this.homeX;
+    let curY = this.homeY;
+
+    if (window.desktopAPI?.getWindowPosition) {
+      try {
+        const pos = await window.desktopAPI.getWindowPosition();
+        curX = pos.x;
+        curY = pos.y;
+      } catch (e) {}
+    }
+
+    this.currentState = 'IN_FREE_FALL';
+    this.physicsEngine.launch(curX, curY, initialVx, initialVy);
+
+    this.lastPhysicsTickTime = performance.now();
+    let accumulatedX = 0;
+    let accumulatedY = 0;
+
+    this.physicsInterval = setInterval(() => {
+      const now = performance.now();
+      const dt = (now - this.lastPhysicsTickTime) / 1000;
+      this.lastPhysicsTickTime = now;
+
+      const res = this.physicsEngine.step(dt);
+
+      const dx = res.x - curX;
+      const dy = res.y - curY;
+
+      curX = res.x;
+      curY = res.y;
+
+      accumulatedX += dx;
+      accumulatedY += dy;
+
+      let sendX = 0;
+      let sendY = 0;
+
+      if (Math.abs(accumulatedX) >= 1) {
+        sendX = Math.trunc(accumulatedX);
+        accumulatedX -= sendX;
+      }
+      if (Math.abs(accumulatedY) >= 1) {
+        sendY = Math.trunc(accumulatedY);
+        accumulatedY -= sendY;
+      }
+
+      if ((sendX !== 0 || sendY !== 0) && window.desktopAPI?.moveWindowBy) {
+        window.desktopAPI.moveWindowBy(sendX, sendY);
+      }
+
+      // Notify 3D canvas of physics-driven squash/stretch deformation and body lean
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('appu-physics-deformation', {
+            detail: {
+              squashFactor: res.squashFactor,
+              tiltAngle: res.tiltAngle,
+              verticalVel: res.vy,
+            },
+          })
+        );
+      }
+
+      if (res.isResting) {
+        this.stopPhysicsLoop();
+        this.currentState = 'RESTING';
+        this.stateChangeCallback('idle', 'happy', 0);
+        this.handleUserDropped();
+      }
+    }, 16);
+  }
+
+  public stopPhysicsLoop() {
+    if (this.physicsInterval) {
+      clearInterval(this.physicsInterval);
+      this.physicsInterval = null;
+    }
+  }
+
+  public destroy() {
+    this.stopWalking();
+    this.stopPhysicsLoop();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('appu-drag-start', this.onDragStartListener);
+      window.removeEventListener('appu-released-with-velocity', this.onReleasedListener);
+      window.removeEventListener('appu-dropped-by-user', this.onDroppedListener);
+    }
+  }
+}
