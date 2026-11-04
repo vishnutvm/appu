@@ -17,6 +17,7 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
   onDance,
   onStandUp,
   onOpenReminders,
+  onOpenSettings,
   onQuitAppu,
   activeActionId,
   followCursorEnabled = false,
@@ -259,6 +260,21 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
                 <span className="item-title">Hide Appu</span>
                 <span className="key-hint">⌘H</span>
               </div>
+
+              {onOpenSettings && (
+                <div
+                  role="menuitem"
+                  tabIndex={0}
+                  className="menu-item-row"
+                  onClick={() => {
+                    onOpenSettings();
+                    onClose();
+                  }}
+                >
+                  <span className="item-title">Preferences...</span>
+                  <span className="key-hint">⌘,</span>
+                </div>
+              )}
             </div>
           )}
         </div>

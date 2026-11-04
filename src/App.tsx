@@ -7,6 +7,7 @@ import { InteractionMenu } from './components/InteractionMenu';
 import { ActionsAndPosesPanel } from './components/ActionsAndPosesPanel';
 import { FloatingEmoteIndicator } from './components/FloatingEmoteIndicator';
 import { SettingsModal } from './components/SettingsModal';
+import { RemindersModal } from './components/RemindersModal';
 import { UpdateNotification } from './components/UpdateNotification';
 import { DesktopMovementController } from './controllers/DesktopMovementController';
 import { AppuActionRegistry } from './controllers/AppuActionRegistry';
@@ -15,7 +16,7 @@ import { AppuActionId } from './types/actions';
 import { INITIAL_CONTROLS, CharacterControlState, AppuAnimationState, AppuEmotion } from './types/character';
 import { CompanionStateLabel } from './types/menu';
 import { UpdaterStatus } from './types/updater';
-import { Sparkles, Minus, Square, X, Bell, Menu as MenuIcon, Play } from 'lucide-react';
+import { Sparkles, Minus, Square, X, Bell, Menu as MenuIcon, Play, Sliders } from 'lucide-react';
 import { MenuPlacement } from './types/desktop';
 import './types/desktop';
 import './App.css';
@@ -39,6 +40,7 @@ export const App: React.FC = () => {
     vertical: 'bottom',
   });
   const [showSettings, setShowSettings] = useState(false);
+  const [showRemindersModal, setShowRemindersModal] = useState(false);
   const [freeFallEnabled, setFreeFallEnabled] = useState(true);
   const [updaterStatus, setUpdaterStatus] = useState<UpdaterStatus | null>(null);
 
@@ -80,7 +82,7 @@ export const App: React.FC = () => {
   // Sync native window bounds between compact (220x300) and expanded menu / modals
   useEffect(() => {
     if (isCompanionMode) {
-      if (showSettings) {
+      if (showSettings || showRemindersModal) {
         window.desktopAPI?.setMenuOpen(true, 'modal');
       } else if (isMenuOpen || isActionsPanelOpen || Boolean(reminder)) {
         window.desktopAPI?.setMenuOpen(true, 'menu');
@@ -88,7 +90,7 @@ export const App: React.FC = () => {
         window.desktopAPI?.setMenuOpen(false);
       }
     }
-  }, [isMenuOpen, isActionsPanelOpen, showSettings, reminder, isCompanionMode]);
+  }, [isMenuOpen, isActionsPanelOpen, showSettings, showRemindersModal, reminder, isCompanionMode]);
 
   const [controls, setControls] = useState<CharacterControlState>(() => ({
     ...INITIAL_CONTROLS,
@@ -610,28 +612,7 @@ export const App: React.FC = () => {
             onOpenReminders={() => {
               setIsMenuOpen(false);
               setIsActionsPanelOpen(false);
-              const list = RemindersManager.getInstance().getReminders();
-              if (list.length > 0) {
-                const currentIndex = reminder ? list.findIndex((r) => r.id === reminder.id) : -1;
-                const nextReminder = list[(currentIndex + 1) % list.length];
-                setReminder({
-                  id: nextReminder.id,
-                  title: nextReminder.title,
-                  intervalMinutes: nextReminder.intervalMinutes,
-                  specificTime: nextReminder.specificTime,
-                  type: nextReminder.type,
-                  actionText: 'Done',
-                });
-                handleTriggerAction('wave');
-              } else {
-                setReminder({
-                  id: 'status_check',
-                  title: 'All caught up!',
-                  message: "You have no active reminders right now. Everything is running smoothly! ✨",
-                  actionText: 'Got it',
-                });
-                handleTriggerAction('cheer');
-              }
+              setShowRemindersModal(true);
             }}
             onOpenSettings={() => {
               setShowSettings(true);
@@ -662,6 +643,12 @@ export const App: React.FC = () => {
           }}
           freeFallEnabled={freeFallEnabled}
           onToggleFreeFall={handleToggleFreeFall}
+        />
+
+        {/* Reminders Management Modal */}
+        <RemindersModal
+          isOpen={showRemindersModal}
+          onClose={() => setShowRemindersModal(false)}
         />
       </div>
     );
@@ -751,6 +738,16 @@ export const App: React.FC = () => {
             <span>Test Reminder</span>
           </button>
 
+          {/* Preferences / Settings Modal Launcher */}
+          <button
+            className="companion-mode-launcher-btn"
+            onClick={() => setShowSettings(true)}
+            title="Open Appu Preferences & Software Updates"
+          >
+            <Sliders size={13} className="text-gold" />
+            <span>Preferences</span>
+          </button>
+
           <button className="window-ctrl-btn" title="Minimize">
             <Minus size={13} />
           </button>
@@ -827,28 +824,7 @@ export const App: React.FC = () => {
               onOpenReminders={() => {
                 setIsMenuOpen(false);
                 setIsActionsPanelOpen(false);
-                const list = RemindersManager.getInstance().getReminders();
-                if (list.length > 0) {
-                  const currentIndex = reminder ? list.findIndex((r) => r.id === reminder.id) : -1;
-                  const nextReminder = list[(currentIndex + 1) % list.length];
-                  setReminder({
-                    id: nextReminder.id,
-                    title: nextReminder.title,
-                    intervalMinutes: nextReminder.intervalMinutes,
-                    specificTime: nextReminder.specificTime,
-                    type: nextReminder.type,
-                    actionText: 'Done',
-                  });
-                  handleTriggerAction('wave');
-                } else {
-                  setReminder({
-                    id: 'status_check',
-                    title: 'All caught up!',
-                    message: "You have no active reminders right now. Everything is running smoothly! ✨",
-                    actionText: 'Got it',
-                  });
-                  handleTriggerAction('cheer');
-                }
+                setShowRemindersModal(true);
               }}
               onOpenSettings={() => {
                 setShowSettings(true);
@@ -923,6 +899,12 @@ export const App: React.FC = () => {
         freeFallEnabled={freeFallEnabled}
         onToggleFreeFall={handleToggleFreeFall}
         updaterStatus={updaterStatus}
+      />
+
+      {/* Reminders Management Modal */}
+      <RemindersModal
+        isOpen={showRemindersModal}
+        onClose={() => setShowRemindersModal(false)}
       />
     </div>
   );
