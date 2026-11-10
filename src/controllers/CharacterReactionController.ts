@@ -24,6 +24,7 @@ export class CharacterReactionController {
   private reactionTotalDuration: number = 0;
   private lastImpactTime: number = 0;
   private intensityMultiplier: number = 1.0;
+  private pendingEmotionTimer: ReturnType<typeof setTimeout> | null = null;
 
   private callbacks?: ReactionCallbacks;
 
@@ -101,11 +102,20 @@ export class CharacterReactionController {
       this.reactionTotalDuration = 1.6;
       this.callbacks?.onStateTrigger('collision', 0.45);
       this.callbacks?.onEmotionTrigger('hurt', 0.65);
-      setTimeout(() => {
+      this.clearPendingEmotionTimer();
+      this.pendingEmotionTimer = setTimeout(() => {
+        this.pendingEmotionTimer = null;
         if (this.isReacting) {
           this.callbacks?.onEmotionTrigger('dizzy', 0.95);
         }
       }, 650);
+    }
+  }
+
+  private clearPendingEmotionTimer() {
+    if (this.pendingEmotionTimer) {
+      clearTimeout(this.pendingEmotionTimer);
+      this.pendingEmotionTimer = null;
     }
   }
 
@@ -180,6 +190,7 @@ export class CharacterReactionController {
   }
 
   public reset() {
+    this.clearPendingEmotionTimer();
     this.recoilOffset.set(0, 0, 0);
     this.recoilVelocity.set(0, 0, 0);
     this.headPitch = 0;

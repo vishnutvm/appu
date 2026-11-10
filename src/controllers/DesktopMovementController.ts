@@ -62,7 +62,7 @@ export class DesktopMovementController {
   private onDragStartListener = () => {
     this.stopWalking();
     this.stopPhysicsLoop();
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
     this.currentState = 'BEING_DRAGGED';
   };
 
@@ -100,7 +100,12 @@ export class DesktopMovementController {
     this.pendingTimers.add(id);
   }
 
-  private cancelPending() {
+  /** Cancels settle + any one-shot stroll/dismiss/appear timers. */
+  public clearAllTimers() {
+    if (this.settleTimer) {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = null;
+    }
     this.pendingTimers.forEach((id) => clearTimeout(id));
     this.pendingTimers.clear();
   }
@@ -634,7 +639,7 @@ export class DesktopMovementController {
   }
 
   public stopWalking() {
-    this.cancelPending();
+    this.clearAllTimers();
     this.isWalking = false;
     this.allowOffscreenWalking = false;
     if (this.currentWalkInterval) {
@@ -737,7 +742,7 @@ export class DesktopMovementController {
     this.stopWalking();
     this.unsubscribeEdgeBump?.();
     this.stopPhysicsLoop();
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
     if (typeof window !== 'undefined') {
       window.removeEventListener('appu-drag-start', this.onDragStartListener);
       window.removeEventListener('appu-released-with-velocity', this.onReleasedListener);
