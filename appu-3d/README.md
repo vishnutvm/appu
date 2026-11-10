@@ -1,6 +1,8 @@
-# Appu — Interactive 3D AI Character Studio (v2.0 Redesign)
+# Appu — Interactive 3D Desktop Companion
 
-An independent, browser-based, full-body 3D robotic companion and character studio built with React 19, TypeScript, Vite, Three.js, React Three Fiber (R3F), and Drei.
+Appu is the Electron / React Three Fiber **desktop companion** (character studio + always-on-top companion mode). There is no Python voice assistant in this repository.
+
+Built with React 19, TypeScript, Vite, Three.js, React Three Fiber (R3F), and Drei.
 
 ## Visual & Architecture Redesign Overview
 

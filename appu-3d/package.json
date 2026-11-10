@@ -2,7 +2,7 @@
   "name": "appu",
   "productName": "Appu",
   "version": "1.0.0",
-  "description": "Appu - Cross-platform AI desktop companion and assistant",
+  "description": "Appu - Cross-platform 3D desktop companion",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",

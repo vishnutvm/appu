@@ -1,10 +1,12 @@
+.DS_Store
+.env
+*.local
+logs/
+# Legacy Python assistant paths (no longer shipped; ignore if present locally)
 .venv/
 __pycache__/
 *.py[cod]
-.env
-.DS_Store
 .pytest_cache/
 .ruff_cache/
-logs/
 data/
 models/
