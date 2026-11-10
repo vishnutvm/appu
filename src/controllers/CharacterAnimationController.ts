@@ -266,6 +266,10 @@ export class CharacterAnimationController {
       targetY = jumpCycle > 0 ? 0.04 + jumpCycle * 0.28 : 0.04 + jumpCycle * 0.04;
     } else if (state === 'cheer' || state === 'celebrate') {
       targetY = 0.04 + Math.abs(Math.sin(time * 7.5)) * 0.038;
+    } else if (state === 'excited') {
+      targetY = 0.04 + Math.abs(Math.sin(time * 9.0)) * 0.05;
+    } else if (state === 'surprised') {
+      targetY = 0.07;
     } else if (state === 'clap') {
       targetY = 0.04 + Math.abs(Math.sin(time * 6.0)) * 0.016;
     } else if (state === 'dance') {
@@ -450,6 +454,12 @@ export class CharacterAnimationController {
       baseHeadRoll = THREE.MathUtils.degToRad(18); // Inquisitive tilt
       baseHeadPitch = THREE.MathUtils.degToRad(-14);
       baseHeadYaw = THREE.MathUtils.degToRad(12);
+    } else if (state === 'surprised') {
+      baseHeadPitch = THREE.MathUtils.degToRad(-12); // Startled head pull-back
+      baseHeadRoll = 0;
+    } else if (state === 'excited') {
+      baseHeadPitch = THREE.MathUtils.degToRad(-6) + Math.sin(time * 9.0) * 0.05;
+      baseHeadRoll = Math.sin(time * 4.5) * 0.08;
     } else if (state === 'nod') {
       baseHeadPitch = Math.sin(time * 8.5) * 0.24; // Nodding motion
       baseHeadRoll = 0;
@@ -464,6 +474,9 @@ export class CharacterAnimationController {
       baseHeadYaw = THREE.MathUtils.degToRad(-26);
       baseHeadPitch = THREE.MathUtils.degToRad(16);
       baseHeadRoll = THREE.MathUtils.degToRad(12);
+    } else if (state === 'sad') {
+      baseHeadPitch = THREE.MathUtils.degToRad(26);
+      baseHeadRoll = THREE.MathUtils.degToRad(6);
     } else if (state === 'confused') {
       baseHeadRoll = THREE.MathUtils.degToRad(-18);
       baseHeadPitch = THREE.MathUtils.degToRad(-8);
@@ -659,6 +672,43 @@ export class CharacterAnimationController {
       return;
     }
 
+    // 2b. EXCITED: fists pumping at shoulder height
+    if (state === 'excited') {
+      const pump = Math.sin(time * 9.0) * 0.22;
+      leftArm.rotation.x = THREE.MathUtils.lerp(leftArm.rotation.x, THREE.MathUtils.degToRad(-35), dt * 9.0);
+      leftArm.rotation.y = THREE.MathUtils.lerp(leftArm.rotation.y, 0, dt * 9.0);
+      leftArm.rotation.z = THREE.MathUtils.lerp(leftArm.rotation.z, THREE.MathUtils.degToRad(70) + pump, dt * 12.0);
+      leftForearm.rotation.x = THREE.MathUtils.lerp(leftForearm.rotation.x, THREE.MathUtils.degToRad(-75), dt * 9.0);
+      leftForearm.rotation.y = THREE.MathUtils.lerp(leftForearm.rotation.y, 0, dt * 9.0);
+      leftForearm.rotation.z = THREE.MathUtils.lerp(leftForearm.rotation.z, 0, dt * 9.0);
+
+      rightArm.rotation.x = THREE.MathUtils.lerp(rightArm.rotation.x, THREE.MathUtils.degToRad(-35), dt * 9.0);
+      rightArm.rotation.y = THREE.MathUtils.lerp(rightArm.rotation.y, 0, dt * 9.0);
+      rightArm.rotation.z = THREE.MathUtils.lerp(rightArm.rotation.z, THREE.MathUtils.degToRad(-70) + pump, dt * 12.0);
+      rightForearm.rotation.x = THREE.MathUtils.lerp(rightForearm.rotation.x, THREE.MathUtils.degToRad(-75), dt * 9.0);
+      rightForearm.rotation.y = THREE.MathUtils.lerp(rightForearm.rotation.y, 0, dt * 9.0);
+      rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, 0, dt * 9.0);
+      return;
+    }
+
+    // 2c. SURPRISED: quick jolt, arms flung out and up
+    if (state === 'surprised') {
+      leftArm.rotation.x = THREE.MathUtils.lerp(leftArm.rotation.x, THREE.MathUtils.degToRad(-20), dt * 16.0);
+      leftArm.rotation.y = THREE.MathUtils.lerp(leftArm.rotation.y, 0, dt * 16.0);
+      leftArm.rotation.z = THREE.MathUtils.lerp(leftArm.rotation.z, THREE.MathUtils.degToRad(55), dt * 16.0);
+      leftForearm.rotation.x = THREE.MathUtils.lerp(leftForearm.rotation.x, THREE.MathUtils.degToRad(-40), dt * 16.0);
+      leftForearm.rotation.y = THREE.MathUtils.lerp(leftForearm.rotation.y, 0, dt * 16.0);
+      leftForearm.rotation.z = THREE.MathUtils.lerp(leftForearm.rotation.z, THREE.MathUtils.degToRad(20), dt * 16.0);
+
+      rightArm.rotation.x = THREE.MathUtils.lerp(rightArm.rotation.x, THREE.MathUtils.degToRad(-20), dt * 16.0);
+      rightArm.rotation.y = THREE.MathUtils.lerp(rightArm.rotation.y, 0, dt * 16.0);
+      rightArm.rotation.z = THREE.MathUtils.lerp(rightArm.rotation.z, THREE.MathUtils.degToRad(-55), dt * 16.0);
+      rightForearm.rotation.x = THREE.MathUtils.lerp(rightForearm.rotation.x, THREE.MathUtils.degToRad(-40), dt * 16.0);
+      rightForearm.rotation.y = THREE.MathUtils.lerp(rightForearm.rotation.y, 0, dt * 16.0);
+      rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, THREE.MathUtils.degToRad(-20), dt * 16.0);
+      return;
+    }
+
     // 3. SALUTE
     if (state === 'salute') {
       // Anatomical 3D salute: Right upper arm raises laterally up and slightly forward,
@@ -797,6 +847,24 @@ export class CharacterAnimationController {
       rightForearm.rotation.x = THREE.MathUtils.lerp(rightForearm.rotation.x, THREE.MathUtils.degToRad(-60), dt * 7.0);
       rightForearm.rotation.y = THREE.MathUtils.lerp(rightForearm.rotation.y, 0, dt * 7.0);
       rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, 0, dt * 7.0);
+      return;
+    }
+
+    // SAD POSE (Arms hanging limp down and slightly inward)
+    if (state === 'sad') {
+      leftArm.rotation.x = THREE.MathUtils.lerp(leftArm.rotation.x, THREE.MathUtils.degToRad(12), dt * 6.0);
+      leftArm.rotation.y = THREE.MathUtils.lerp(leftArm.rotation.y, 0, dt * 6.0);
+      leftArm.rotation.z = THREE.MathUtils.lerp(leftArm.rotation.z, THREE.MathUtils.degToRad(-8), dt * 6.0);
+      leftForearm.rotation.x = THREE.MathUtils.lerp(leftForearm.rotation.x, THREE.MathUtils.degToRad(-15), dt * 6.0);
+      leftForearm.rotation.y = THREE.MathUtils.lerp(leftForearm.rotation.y, 0, dt * 6.0);
+      leftForearm.rotation.z = THREE.MathUtils.lerp(leftForearm.rotation.z, 0, dt * 6.0);
+
+      rightArm.rotation.x = THREE.MathUtils.lerp(rightArm.rotation.x, THREE.MathUtils.degToRad(12), dt * 6.0);
+      rightArm.rotation.y = THREE.MathUtils.lerp(rightArm.rotation.y, 0, dt * 6.0);
+      rightArm.rotation.z = THREE.MathUtils.lerp(rightArm.rotation.z, THREE.MathUtils.degToRad(8), dt * 6.0);
+      rightForearm.rotation.x = THREE.MathUtils.lerp(rightForearm.rotation.x, THREE.MathUtils.degToRad(-15), dt * 6.0);
+      rightForearm.rotation.y = THREE.MathUtils.lerp(rightForearm.rotation.y, 0, dt * 6.0);
+      rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, 0, dt * 6.0);
       return;
     }
 

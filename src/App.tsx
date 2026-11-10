@@ -8,10 +8,12 @@ import { ActionsAndPosesPanel } from './components/ActionsAndPosesPanel';
 import { FloatingEmoteIndicator } from './components/FloatingEmoteIndicator';
 import { SettingsModal } from './components/SettingsModal';
 import { RemindersModal } from './components/RemindersModal';
+import { QuickAppuChat } from './components/QuickAppuChat';
 import { UpdateNotification } from './components/UpdateNotification';
 import { DesktopMovementController } from './controllers/DesktopMovementController';
 import { AppuActionRegistry } from './controllers/AppuActionRegistry';
 import { RemindersManager } from './controllers/RemindersManager';
+import { ReminderRecurrence } from './types/reminders';
 import { AppuActionId } from './types/actions';
 import { INITIAL_CONTROLS, CharacterControlState, AppuAnimationState, AppuEmotion } from './types/character';
 import { CompanionStateLabel } from './types/menu';
@@ -20,6 +22,17 @@ import { Sparkles, Minus, Square, X, Bell, Menu as MenuIcon, Play, Sliders } fro
 import { MenuPlacement } from './types/desktop';
 import './types/desktop';
 import './App.css';
+
+interface QueuedReminder {
+  id?: string;
+  title: string;
+  message?: string;
+  actionText?: string;
+  intervalMinutes?: number;
+  specificTime?: string;
+  type?: 'interval' | 'specific_time';
+  recurrence?: ReminderRecurrence;
+}
 
 export const App: React.FC = () => {
   // Check if running in desktop companion mode (via ?mode=companion or window.desktopAPI)
@@ -41,10 +54,46 @@ export const App: React.FC = () => {
   });
   const [showSettings, setShowSettings] = useState(false);
   const [showRemindersModal, setShowRemindersModal] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [freeFallEnabled, setFreeFallEnabled] = useState(true);
   const [updaterStatus, setUpdaterStatus] = useState<UpdaterStatus | null>(null);
+  const [assistantName, setAssistantName] = useState<string>('Appu');
+
+  const lastActivityRef = useRef<number>(Date.now());
+  const isExitingRef = useRef<boolean>(false);
+  const isHiddenRef = useRef(false);
+  const spawnStateRef = useRef<'spawning_in' | 'active' | 'spawning_out' | 'hidden'>('spawning_in');
+  const registerUserActivity = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    isExitingRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    isHiddenRef.current = isHidden;
+  }, [isHidden]);
+  useEffect(() => {
+    spawnStateRef.current = spawnState;
+  }, [spawnState]);
+
+  const handleTogglePin = useCallback(() => {
+    setIsPinned((prev) => {
+      const next = !prev;
+      lastActivityRef.current = Date.now();
+      movementControllerRef.current?.setIsPinned(next);
+      if (window.desktopAPI?.storage) {
+        window.desktopAPI.storage.saveSettings({ isPinned: next }).catch(() => {});
+      }
+      if (next) {
+        movementControllerRef.current?.stickToEdge(() => setIsPinned(true));
+      } else {
+        movementControllerRef.current?.unstick(() => setIsPinned(false));
+      }
+      return next;
+    });
+  }, []);
 
   const handleToggleFreeFall = useCallback(() => {
+    lastActivityRef.current = Date.now();
     setFreeFallEnabled((prev) => {
       const next = !prev;
       movementControllerRef.current?.setFreeFallEnabled(next);
@@ -77,20 +126,23 @@ export const App: React.FC = () => {
     intervalMinutes?: number;
     specificTime?: string;
     type?: 'interval' | 'specific_time';
+    recurrence?: ReminderRecurrence;
   } | null>(null);
 
-  // Sync native window bounds between compact (220x300) and expanded menu / modals
+  // Sync native window bounds between compact (220x300) and expanded menu / modals / chat
   useEffect(() => {
     if (isCompanionMode) {
       if (showSettings || showRemindersModal) {
         window.desktopAPI?.setMenuOpen(true, 'modal');
+      } else if (isChatOpen) {
+        window.desktopAPI?.setMenuOpen(true, 'chat');
       } else if (isMenuOpen || isActionsPanelOpen || Boolean(reminder)) {
         window.desktopAPI?.setMenuOpen(true, 'menu');
       } else {
         window.desktopAPI?.setMenuOpen(false);
       }
     }
-  }, [isMenuOpen, isActionsPanelOpen, showSettings, showRemindersModal, reminder, isCompanionMode]);
+  }, [isMenuOpen, isActionsPanelOpen, showSettings, showRemindersModal, reminder, isChatOpen, isCompanionMode]);
 
   const [controls, setControls] = useState<CharacterControlState>(() => ({
     ...INITIAL_CONTROLS,
@@ -107,7 +159,86 @@ export const App: React.FC = () => {
     }
   }, [reminder]);
 
+  // Connect AI Brain Activity States to 3D Character
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.desktopAPI?.ai) return;
+
+    const unsubscribe = window.desktopAPI.ai.onStateChanged((evt) => {
+      if (!evt?.state) return;
+      switch (evt.state) {
+        case 'listening':
+          setControls((prev) => ({
+            ...prev,
+            animationState: 'looking',
+            emotion: 'curious',
+          }));
+          break;
+        case 'thinking':
+          setControls((prev) => ({
+            ...prev,
+            animationState: 'think',
+            emotion: 'thinking',
+          }));
+          break;
+        case 'executing':
+          setControls((prev) => ({
+            ...prev,
+            animationState: 'point',
+            emotion: 'focused',
+          }));
+          break;
+        case 'waiting_approval':
+          setControls((prev) => ({
+            ...prev,
+            animationState: 'looking_around',
+            emotion: 'curious',
+          }));
+          break;
+        case 'responding':
+          setControls((prev) => ({
+            ...prev,
+            animationState: 'wave',
+            emotion: 'happy',
+          }));
+          break;
+        case 'error':
+          setControls((prev) => ({
+            ...prev,
+            animationState: 'confused',
+            emotion: 'confused',
+          }));
+          break;
+        case 'idle':
+          setControls((prev) => ({
+            ...prev,
+            animationState: 'idle',
+            emotion: 'neutral',
+          }));
+          break;
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
   const movementControllerRef = useRef<DesktopMovementController | null>(null);
+  const activeReminderIdRef = useRef<string | null>(null);
+  const reminderQueueRef = useRef<QueuedReminder[]>([]);
+  const presentReminderRef = useRef<((r: QueuedReminder) => void) | null>(null);
+
+  // Clear the active reminder and present the next queued one (if any) after a short pause.
+  // Returns true when another reminder is queued so callers can skip walk-home/hide.
+  const finishActiveReminder = useCallback((delayMs: number) => {
+    activeReminderIdRef.current = null;
+    const next = reminderQueueRef.current.shift();
+    if (next) {
+      setTimeout(() => presentReminderRef.current?.(next), delayMs);
+      return true;
+    }
+    return false;
+  }, []);
 
   // Compute live character state label for the Interaction Menu header
   const characterStateLabel: CompanionStateLabel = (() => {
@@ -203,9 +334,25 @@ export const App: React.FC = () => {
   }, [spawnState]);
 
   const handleShowAppu = useCallback((goHome: boolean = false) => {
+    registerUserActivity();
+    if (spawnState === 'active' && !isHidden && !movementControllerRef.current?.getIsOffScreen()) {
+      if (goHome) {
+        setIsPinned(false);
+        movementControllerRef.current?.walkToHomeCorner();
+      }
+      return;
+    }
+
+    // When returning from hidden/offscreen state, position offscreen before showing
+    if (!goHome && window.desktopAPI?.setWindowPosition && movementControllerRef.current) {
+      const offX = movementControllerRef.current.getOffscreenX();
+      const homeY = movementControllerRef.current.getHomeY();
+      window.desktopAPI.setWindowPosition(offX, homeY);
+    }
+
     window.desktopAPI?.showApp();
     setIsHidden(false);
-    setSpawnState('spawning_in');
+    setSpawnState('active');
 
     setControls((prev) => ({
       ...prev,
@@ -218,13 +365,74 @@ export const App: React.FC = () => {
       setIsPinned(false);
       movementControllerRef.current?.walkToHomeCorner();
     } else {
-      movementControllerRef.current?.reappear();
+      movementControllerRef.current?.walkOnScreen(undefined, () => {
+        setSpawnState('active');
+      });
     }
+  }, [spawnState, isHidden, registerUserActivity]);
 
-    setTimeout(() => {
-      setSpawnState('active');
-    }, 520);
+  // IPC listeners are registered once; route them through the latest handlers
+  const latestHandlersRef = useRef({ hide: handleHideAppu, show: handleShowAppu, triggerAction: handleTriggerAction });
+  latestHandlersRef.current = { hide: handleHideAppu, show: handleShowAppu, triggerAction: handleTriggerAction };
+
+  // While Appu is dragged the pointer can outrun the window; click-through must stay off
+  // or the pointerup is lost and the drag never ends
+  const isWindowDraggingRef = useRef(false);
+  const isExpandedRef = useRef(false);
+  useEffect(() => {
+    if (!isCompanionMode) return;
+    const onDragStart = () => {
+      isWindowDraggingRef.current = true;
+      window.desktopAPI?.setIgnoreMouseEvents(false);
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (!isWindowDraggingRef.current) return;
+      isWindowDraggingRef.current = false;
+      const target = e.target instanceof Element ? e.target : null;
+      const overInteractive = target?.closest('.companion-character-hitbox, .companion-menu-anchor, .appu-summon-pill');
+      if (!overInteractive && !isExpandedRef.current) {
+        window.desktopAPI?.setIgnoreMouseEvents(true);
+      }
+    };
+    window.addEventListener('appu-drag-start', onDragStart);
+    window.addEventListener('pointerup', onPointerUp);
+    return () => {
+      window.removeEventListener('appu-drag-start', onDragStart);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [isCompanionMode]);
+
+  // The AI's open_settings tool asks the renderer to show Preferences
+  useEffect(() => {
+    return window.desktopAPI?.ai?.onOpenSettings?.(() => {
+      setIsChatOpen(false);
+      setShowSettings(true);
+    });
   }, []);
+
+  // Studio (browser) mode: RemindersManager runs the scheduler, show its bubble here
+  useEffect(() => {
+    if (isCompanionMode) return;
+    const present = (r: QueuedReminder) => {
+      const targetReminderId = r.id || `rem_${Date.now()}`;
+      if (activeReminderIdRef.current) {
+        if (activeReminderIdRef.current !== targetReminderId && !reminderQueueRef.current.some((q) => q.id === targetReminderId)) {
+          reminderQueueRef.current.push({ ...r, id: targetReminderId });
+        }
+        return;
+      }
+      activeReminderIdRef.current = targetReminderId;
+      setReminder({ ...r, id: targetReminderId, actionText: r.actionText || 'Done' });
+      latestHandlersRef.current.triggerAction('wave');
+    };
+    presentReminderRef.current = present;
+    const manager = RemindersManager.getInstance();
+    manager.setTriggerCallback(present);
+    return () => {
+      manager.setTriggerCallback(null);
+      presentReminderRef.current = null;
+    };
+  }, [isCompanionMode]);
 
   // Initial mount: finish spawn-in into active
   useEffect(() => {
@@ -250,11 +458,18 @@ export const App: React.FC = () => {
 
       movementControllerRef.current.startCompanionRoutine();
 
-      // Sync persisted preferences (e.g. free-fall physics setting)
+      // Sync persisted preferences (e.g. assistantName, isPinned, free-fall physics setting)
       if (window.desktopAPI?.storage) {
         window.desktopAPI.storage
           .getSettings()
           .then((s) => {
+            if (s?.assistantName) {
+              setAssistantName(s.assistantName);
+            }
+            if (typeof s?.isPinned === 'boolean') {
+              setIsPinned(s.isPinned);
+              movementControllerRef.current?.setIsPinned(s.isPinned);
+            }
             if (typeof s?.freeFallEnabled === 'boolean') {
               setFreeFallEnabled(s.freeFallEnabled);
               movementControllerRef.current?.setFreeFallEnabled(s.freeFallEnabled);
@@ -263,37 +478,59 @@ export const App: React.FC = () => {
           .catch(() => {});
       }
 
-      // Listen for incoming reminder triggers (from IPC or RemindersManager)
-      window.desktopAPI?.onTriggerReminder((data) => {
-        setIsHidden(false);
-        movementControllerRef.current?.triggerReminderStroll(() => {
-          setReminder({
-            id: (data as any)?.id,
-            title: data.title,
-            message: data.message,
-            actionText: data.actionText || 'Done',
-          });
-          setControls((prev) => ({
-            ...prev,
-            animationState: 'wave',
-            emotion: 'happy',
-            rotation: 0,
-          }));
-        });
-      });
+      const handleTriggerReminderEvent = (r: {
+        id?: string;
+        title: string;
+        message?: string;
+        actionText?: string;
+        intervalMinutes?: number;
+        specificTime?: string;
+        type?: 'interval' | 'specific_time';
+        recurrence?: ReminderRecurrence;
+      }) => {
+        registerUserActivity();
+        const targetReminderId = r.id || `rem_${Date.now()}`;
+        if (activeReminderIdRef.current) {
+          if (activeReminderIdRef.current !== targetReminderId && !reminderQueueRef.current.some((q) => q.id === targetReminderId)) {
+            reminderQueueRef.current.push({ ...r, id: targetReminderId });
+          }
+          return;
+        }
+        activeReminderIdRef.current = targetReminderId;
 
-      // Connect RemindersManager scheduler callback
-      const remindersManager = RemindersManager.getInstance();
-      remindersManager.setTriggerCallback((r) => {
+        const alreadyOnScreen =
+          !isHiddenRef.current &&
+          spawnStateRef.current !== 'hidden' &&
+          !(movementControllerRef.current?.getIsOffScreen?.() ?? false);
+
+        // Wake Appu window up
+        window.desktopAPI?.showApp?.();
         setIsHidden(false);
-        movementControllerRef.current?.triggerReminderStroll(() => {
+        setSpawnState('active');
+
+        const onArrivedPresentReminder = async () => {
+          // If the user dismissed or snoozed while Appu was moving, abort presentation
+          if (!activeReminderIdRef.current || activeReminderIdRef.current !== targetReminderId) {
+            return;
+          }
+          if (window.desktopAPI?.getMenuPlacement) {
+            try {
+              const currentPlacement = await window.desktopAPI.getMenuPlacement();
+              if (currentPlacement) {
+                setMenuPlacement(currentPlacement);
+              }
+            } catch {}
+          }
+          window.desktopAPI?.setMenuOpen?.(true, 'menu');
           setReminder({
-            id: r.id,
+            id: targetReminderId,
             title: r.title,
+            message: r.message,
+            actionText: r.actionText || 'OK',
             intervalMinutes: r.intervalMinutes,
             specificTime: r.specificTime,
             type: r.type,
-            actionText: 'Done',
+            recurrence: r.recurrence,
           });
           setControls((prev) => ({
             ...prev,
@@ -301,15 +538,60 @@ export const App: React.FC = () => {
             emotion: 'happy',
             rotation: 0,
           }));
+        };
+
+        if (alreadyOnScreen) {
+          // Queued follow-ups: stay put and show the next bubble without a walk-in
+          onArrivedPresentReminder();
+          return;
+        }
+
+        // Position window offscreen to the right before walking in
+        if (window.desktopAPI?.setWindowPosition && movementControllerRef.current) {
+          const offX = movementControllerRef.current.getOffscreenX();
+          const homeY = movementControllerRef.current.getHomeY();
+          window.desktopAPI.setWindowPosition(offX, homeY);
+        }
+
+        // Smoothly walk onto screen from the side!
+        movementControllerRef.current?.walkOnScreen(undefined, onArrivedPresentReminder);
+      };
+
+      presentReminderRef.current = handleTriggerReminderEvent;
+      const unsubscribers: Array<(() => void) | undefined> = [];
+
+      // Listen for incoming reminder triggers (from IPC)
+      unsubscribers.push(window.desktopAPI?.onTriggerReminder((data: any) => {
+        handleTriggerReminderEvent({
+          id: data.id,
+          title: data.title,
+          message: data.message,
+          actionText: data.actionText || 'Done',
+          intervalMinutes: data.intervalMinutes,
+          specificTime: data.specificTime,
+          type: data.type,
+          recurrence: data.recurrence,
         });
-      });
+      }));
+      // Backend holds due reminders until a listener is attached (avoids firing into a reloading page)
+      window.desktopAPI?.ai?.notifyRemindersReady?.().catch(() => {});
+
+      // Browser companion mode: the renderer scheduler is the only one running
+      if (!window.desktopAPI?.onTriggerReminder) {
+        RemindersManager.getInstance().setTriggerCallback((r) => {
+          handleTriggerReminderEvent(r);
+        });
+      }
 
       // Left-Click on Appu mesh acknowledges/pats him without opening popup menus
       // Menu is exclusively toggled via Right-Click
       // Listen for adaptive menu placement updates from main process
-      window.desktopAPI?.onMenuPlacementChanged((placement: MenuPlacement) => {
+      unsubscribers.push(window.desktopAPI?.onMenuPlacementChanged((placement: MenuPlacement) => {
         setMenuPlacement(placement);
-      });
+      }));
+      window.desktopAPI?.getMenuPlacement?.().then((p) => {
+        if (p) setMenuPlacement(p);
+      }).catch(() => {});
 
       // Automatically close menu when Appu begins being dragged
       const handleDragStart = () => {
@@ -319,21 +601,21 @@ export const App: React.FC = () => {
       window.addEventListener('appu-drag-start', handleDragStart);
 
       // Listen for tray / shortcut menu toggle
-      window.desktopAPI?.onToggleMenu(() => {
+      unsubscribers.push(window.desktopAPI?.onToggleMenu(() => {
         setIsMenuOpen((prev) => !prev);
-      });
+      }));
 
       // Listen for smooth hide / show requests from Electron
-      window.desktopAPI?.onRequestHide?.(() => {
-        handleHideAppu();
-      });
+      unsubscribers.push(window.desktopAPI?.onRequestHide?.(() => {
+        latestHandlersRef.current.hide();
+      }));
 
-      window.desktopAPI?.onRequestShow?.(() => {
-        handleShowAppu(false);
-      });
+      unsubscribers.push(window.desktopAPI?.onRequestShow?.(() => {
+        latestHandlersRef.current.show(false);
+      }));
 
       // Listen for visibility change from tray
-      window.desktopAPI?.onVisibilityChanged((visible) => {
+      unsubscribers.push(window.desktopAPI?.onVisibilityChanged((visible) => {
         if (!visible) {
           setIsHidden(true);
           setSpawnState('hidden');
@@ -343,10 +625,10 @@ export const App: React.FC = () => {
           setIsHidden(false);
           setSpawnState('active');
         }
-      });
+      }));
 
       // Listen for Right-Click Context Menu Actions
-      window.desktopAPI?.onContextAction((action: string) => {
+      unsubscribers.push(window.desktopAPI?.onContextAction((action: string) => {
         if (action === 'stick') {
           setIsPinned(true);
           movementControllerRef.current?.stickToEdge(() => setIsPinned(true));
@@ -354,21 +636,19 @@ export const App: React.FC = () => {
           setIsPinned(false);
           movementControllerRef.current?.unstick(() => setIsPinned(false));
         } else if (action === 'disappear') {
-          handleHideAppu();
+          latestHandlersRef.current.hide();
         } else if (action === 'reappear') {
-          handleShowAppu(false);
+          latestHandlersRef.current.show(false);
         } else if (action === 'go-home') {
-          handleShowAppu(true);
-        } else if (action === 'wave') {
-          handleTriggerAction('wave');
-        } else if (action === 'sit') {
-          handleTriggerAction('sit');
-        } else if (action === 'sleep') {
-          handleTriggerAction('sleep');
+          latestHandlersRef.current.show(true);
+        } else if (action === 'wave' || action === 'sit' || action === 'sleep') {
+          latestHandlersRef.current.triggerAction(action);
         }
-      });
+      }));
 
       return () => {
+        unsubscribers.forEach((unsubscribe) => unsubscribe?.());
+        presentReminderRef.current = null;
         window.removeEventListener('appu-drag-start', handleDragStart);
         movementControllerRef.current?.destroy();
       };
@@ -397,38 +677,94 @@ export const App: React.FC = () => {
         handleShowAppu(true);
         return;
       }
+
+      // ⌘K to toggle Quick Appu Chat
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsChatOpen((prev) => !prev);
+        setIsMenuOpen(false);
+        setIsActionsPanelOpen(false);
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [isHidden, spawnState, handleHideAppu, handleShowAppu]);
 
+  // Auto-Exit to off-screen after inactivity when "Stay on Screen" is OFF (!isPinned)
+  useEffect(() => {
+    if (!isCompanionMode) return;
+
+    const interval = setInterval(() => {
+      // 1. If pinned ("Stay on Screen" is ON), stay visible on screen
+      if (isPinned) return;
+      // 2. Already hidden, transitioning out, or actively exiting
+      if (isHidden || spawnState === 'hidden' || spawnState === 'spawning_out' || isExitingRef.current) return;
+      // 3. User is actively interacting with menus, dialogs, chat, or active reminder
+      if (isMenuOpen || isActionsPanelOpen || showSettings || showRemindersModal || isChatOpen || Boolean(reminder)) return;
+      // 4. In active movement or being dragged
+      if (controls.isGrabbed || controls.animationState === 'walk' || controls.animationState === 'walking') return;
+
+      const idleMs = Date.now() - lastActivityRef.current;
+      // Inactivity timeout: 20 seconds
+      if (idleMs >= 20000) {
+        isExitingRef.current = true;
+        movementControllerRef.current?.walkOffScreen(() => {
+          isExitingRef.current = false;
+          handleHideAppu();
+        });
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [
+    isCompanionMode,
+    isPinned,
+    isHidden,
+    spawnState,
+    isMenuOpen,
+    isActionsPanelOpen,
+    showSettings,
+    showRemindersModal,
+    isChatOpen,
+    reminder,
+    controls.isGrabbed,
+    controls.animationState,
+    handleHideAppu,
+  ]);
+
   // -------------------------------------------------------------
   // COMPANION MODE RENDER: Transparent, Frameless Desktop Widget
   // -------------------------------------------------------------
   if (isCompanionMode) {
-    const isExpanded = isMenuOpen || isActionsPanelOpen || showSettings || Boolean(reminder);
+    const isExpanded = isMenuOpen || isActionsPanelOpen || showSettings || showRemindersModal || isChatOpen || Boolean(reminder);
+    isExpandedRef.current = isExpanded;
 
     return (
       <div
         className={`appu-desktop-companion-viewport ${
           isHidden ? 'appu-hidden' : ''
         } ${isExpanded ? 'menu-open' : 'menu-closed'} menu-h-${menuPlacement.horizontal} menu-v-${menuPlacement.vertical}`}
+        onMouseMove={registerUserActivity}
         onClick={() => {
+          registerUserActivity();
           if (isMenuOpen || isActionsPanelOpen) {
             setIsMenuOpen(false);
             setIsActionsPanelOpen(false);
           }
         }}
         onContextMenu={(e) => {
+          registerUserActivity();
           e.preventDefault();
           setIsMenuOpen((prev) => !prev);
           setIsActionsPanelOpen(false);
         }}
         onMouseEnter={() => {
+          registerUserActivity();
           // Let clicks pass through when over empty transparent space
           if (!isHidden && !isExpanded) {
-            window.desktopAPI?.setIgnoreMouseEvents(true);
+            if (!isWindowDraggingRef.current) window.desktopAPI?.setIgnoreMouseEvents(true);
           }
         }}
       >
@@ -438,58 +774,22 @@ export const App: React.FC = () => {
             className="appu-summon-pill"
             onClick={(e) => {
               e.stopPropagation();
+              registerUserActivity();
               window.desktopAPI?.setIgnoreMouseEvents(false);
               handleShowAppu(false);
             }}
             onMouseEnter={() => {
+              registerUserActivity();
               window.desktopAPI?.setIgnoreMouseEvents(false);
             }}
             onMouseLeave={() => {
               window.desktopAPI?.setIgnoreMouseEvents(true);
             }}
-            title="Summon Appu back (or press ⌘H)"
+            title={`Summon ${assistantName} back (or press ⌘H)`}
           >
             <span className="summon-icon">🤖</span>
-            <span className="summon-text">Appu</span>
+            <span className="summon-text">{assistantName}</span>
           </button>
-        )}
-
-        {/* Floating Notification Speech Bubble beside Appu (Never covering his face!) */}
-        {reminder && !isHidden && (
-          <ReminderBubble
-            id={reminder.id}
-            title={reminder.title}
-            message={reminder.message}
-            intervalMinutes={reminder.intervalMinutes}
-            specificTime={reminder.specificTime}
-            type={reminder.type}
-            actionText={reminder.actionText || 'Done'}
-            side={menuPlacement.horizontal === 'left' ? 'left' : 'right'}
-            onAction={() => {
-              if (reminder.id && reminder.id !== 'status_check') {
-                RemindersManager.getInstance().markCompletedOrReschedule(reminder.id);
-              }
-              handleTriggerAction('cheer');
-              setTimeout(() => {
-                setReminder(null);
-                movementControllerRef.current?.dismissAndReturnHome();
-              }, 1100);
-            }}
-            onSnooze={(mins = 5) => {
-              if (reminder.id && reminder.id !== 'status_check') {
-                RemindersManager.getInstance().snoozeReminder(reminder.id, mins);
-              }
-              handleTriggerAction('nod');
-              setTimeout(() => {
-                setReminder(null);
-                movementControllerRef.current?.dismissAndReturnHome();
-              }, 900);
-            }}
-            onDismiss={() => {
-              setReminder(null);
-              movementControllerRef.current?.dismissAndReturnHome();
-            }}
-          />
         )}
 
         {/* Left Side: 3D Character Canvas */}
@@ -499,7 +799,9 @@ export const App: React.FC = () => {
           } ${spawnState === 'spawning_out' ? 'spawning-out' : ''} ${
             spawnState === 'hidden' || isHidden ? 'hidden-state' : ''
           }`}
+          onMouseMove={registerUserActivity}
           onClick={(e) => {
+            registerUserActivity();
             // Left-click closes menu if open, never opens it
             if (isMenuOpen || isActionsPanelOpen) {
               e.stopPropagation();
@@ -508,6 +810,7 @@ export const App: React.FC = () => {
             }
           }}
           onContextMenu={(e) => {
+            registerUserActivity();
             // Strictly right-click opens the context menu
             e.preventDefault();
             e.stopPropagation();
@@ -515,13 +818,14 @@ export const App: React.FC = () => {
             setIsActionsPanelOpen(false);
           }}
           onMouseEnter={() => {
+            registerUserActivity();
             // Enable mouse interactions when hovering directly on Appu
             window.desktopAPI?.setIgnoreMouseEvents(false);
           }}
           onMouseLeave={() => {
             // Restore click-through when mouse moves away unless menu is open
             if (!isExpanded) {
-              window.desktopAPI?.setIgnoreMouseEvents(true);
+              if (!isWindowDraggingRef.current) window.desktopAPI?.setIgnoreMouseEvents(true);
             }
           }}
         >
@@ -560,12 +864,14 @@ export const App: React.FC = () => {
         {/* Right Side: Redesigned Native Interaction Menu & Actions Gallery */}
         <div
           className={`companion-menu-anchor ${isExpanded ? 'is-open' : ''}`}
+          onMouseMove={registerUserActivity}
           onMouseEnter={() => {
+            registerUserActivity();
             window.desktopAPI?.setIgnoreMouseEvents(false);
           }}
           onMouseLeave={() => {
             if (!isExpanded) {
-              window.desktopAPI?.setIgnoreMouseEvents(true);
+              if (!isWindowDraggingRef.current) window.desktopAPI?.setIgnoreMouseEvents(true);
             }
           }}
         >
@@ -573,16 +879,9 @@ export const App: React.FC = () => {
             isOpen={isMenuOpen && !isHidden}
             onClose={() => setIsMenuOpen(false)}
             characterState={characterStateLabel}
+            assistantName={assistantName}
             isPinned={isPinned}
-            onTogglePin={() => {
-              const next = !isPinned;
-              setIsPinned(next);
-              if (next) {
-                movementControllerRef.current?.stickToEdge(() => setIsPinned(true));
-              } else {
-                movementControllerRef.current?.unstick(() => setIsPinned(false));
-              }
-            }}
+            onTogglePin={handleTogglePin}
             onHideAppu={() => {
               handleHideAppu();
             }}
@@ -614,6 +913,12 @@ export const App: React.FC = () => {
               setIsActionsPanelOpen(false);
               setShowRemindersModal(true);
             }}
+            onOpenQuickAppu={() => {
+              setIsMenuOpen(false);
+              setIsActionsPanelOpen(false);
+              setReminder(null);
+              setIsChatOpen(true);
+            }}
             onOpenSettings={() => {
               setShowSettings(true);
             }}
@@ -627,22 +932,27 @@ export const App: React.FC = () => {
           />
         </div>
 
+        {/* Floating Quick Appu AI Chat Window */}
+        <QuickAppuChat
+          isOpen={isChatOpen && !isHidden}
+          onClose={() => setIsChatOpen(false)}
+          assistantName={assistantName}
+          onOpenSettings={() => {
+            setIsChatOpen(false);
+            setShowSettings(true);
+          }}
+        />
+
         {/* Preferences / Settings Modal */}
         <SettingsModal
           isOpen={showSettings}
           onClose={() => setShowSettings(false)}
           isPinned={isPinned}
-          onTogglePin={() => {
-            const next = !isPinned;
-            setIsPinned(next);
-            if (next) {
-              movementControllerRef.current?.stickToEdge(() => setIsPinned(true));
-            } else {
-              movementControllerRef.current?.unstick(() => setIsPinned(false));
-            }
-          }}
+          onTogglePin={handleTogglePin}
           freeFallEnabled={freeFallEnabled}
           onToggleFreeFall={handleToggleFreeFall}
+          updaterStatus={updaterStatus}
+          onAssistantNameChange={setAssistantName}
         />
 
         {/* Reminders Management Modal */}
@@ -650,6 +960,65 @@ export const App: React.FC = () => {
           isOpen={showRemindersModal}
           onClose={() => setShowRemindersModal(false)}
         />
+
+        {/* Floating Notification Speech Bubble beside Appu (Top layer) */}
+        {reminder && !isHidden && (
+          <ReminderBubble
+            id={reminder.id}
+            title={reminder.title}
+            message={reminder.message}
+            intervalMinutes={reminder.intervalMinutes}
+            specificTime={reminder.specificTime}
+            type={reminder.type}
+            recurrence={reminder.recurrence}
+            actionText={reminder.actionText || 'OK'}
+            autoDismissSeconds={0}
+            side={menuPlacement.horizontal === 'left' ? 'left' : 'right'}
+            onAction={() => {
+              // The scheduler already advanced/completed this reminder when it fired
+              registerUserActivity();
+              setReminder(null);
+              setIsMenuOpen(false);
+              setIsActionsPanelOpen(false);
+              // Keep Appu on-screen when another reminder is queued so the next
+              // bubble can appear ~4s after dismiss (not 4s + walk-home + walk-in).
+              const hasQueued = finishActiveReminder(4000);
+              if (!hasQueued) {
+                movementControllerRef.current?.dismissAndReturnHome('happy', () => {
+                  handleHideAppu();
+                });
+              }
+            }}
+            onSnooze={(mins = 5) => {
+              registerUserActivity();
+              const remId = reminder.id;
+              if (remId && remId !== 'status_check') {
+                RemindersManager.getInstance().snoozeReminder(remId, mins);
+              }
+              setReminder(null);
+              setIsMenuOpen(false);
+              setIsActionsPanelOpen(false);
+              const hasQueued = finishActiveReminder(4000);
+              if (!hasQueued) {
+                movementControllerRef.current?.dismissAndReturnHome('sad', () => {
+                  handleHideAppu();
+                });
+              }
+            }}
+            onDismiss={() => {
+              registerUserActivity();
+              setReminder(null);
+              setIsMenuOpen(false);
+              setIsActionsPanelOpen(false);
+              const hasQueued = finishActiveReminder(4000);
+              if (!hasQueued) {
+                movementControllerRef.current?.dismissAndReturnHome('happy', () => {
+                  handleHideAppu();
+                });
+              }
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -690,7 +1059,7 @@ export const App: React.FC = () => {
             </svg>
           </div>
           <div className="brand-labels">
-            <span className="brand-heading">Appu</span>
+            <span className="brand-heading">{assistantName}</span>
             <span className="brand-sub">3D AI Assistant Character</span>
           </div>
         </div>
@@ -701,7 +1070,8 @@ export const App: React.FC = () => {
           <button
             className={`companion-mode-launcher-btn ${isMenuOpen ? 'active' : ''}`}
             onClick={() => setIsMenuOpen((prev) => !prev)}
-            title="Open Appu Desktop Interaction Menu"
+            title={`Open ${assistantName} Desktop Interaction Menu`}
+            aria-label="Interaction Menu"
           >
             <MenuIcon size={13} className="text-gold" />
             <span>Interaction Menu</span>
@@ -712,6 +1082,7 @@ export const App: React.FC = () => {
             className={`companion-mode-launcher-btn ${isActionsPanelOpen ? 'active' : ''}`}
             onClick={() => setIsActionsPanelOpen((prev) => !prev)}
             title="Open Actions & Poses Panel"
+            aria-label="Actions & Poses"
           >
             <Play size={12} className="text-gold" fill="#f6c344" />
             <span>Actions & Poses</span>
@@ -733,9 +1104,21 @@ export const App: React.FC = () => {
               );
             }}
             title="Toggle Reminder Bubble Simulation (Dev Only)"
+            aria-label="Test Reminder"
           >
             <Bell size={13} className="text-gold" />
             <span>Test Reminder</span>
+          </button>
+
+          {/* Appu AI Chat Launcher */}
+          <button
+            className={`companion-mode-launcher-btn ${isChatOpen ? 'active' : ''}`}
+            onClick={() => setIsChatOpen((prev) => !prev)}
+            title="Open Appu AI Chat (⌘K)"
+            aria-label="Chat"
+          >
+            <Sparkles size={13} className="text-gold" />
+            <span>Chat</span>
           </button>
 
           {/* Preferences / Settings Modal Launcher */}
@@ -743,6 +1126,7 @@ export const App: React.FC = () => {
             className="companion-mode-launcher-btn"
             onClick={() => setShowSettings(true)}
             title="Open Appu Preferences & Software Updates"
+            aria-label="Preferences"
           >
             <Sliders size={13} className="text-gold" />
             <span>Preferences</span>
@@ -774,22 +1158,26 @@ export const App: React.FC = () => {
                 specificTime={reminder.specificTime}
                 type={reminder.type}
                 actionText={reminder.actionText || 'Done'}
+                autoDismissSeconds={0}
                 side="right"
+                recurrence={reminder.recurrence}
                 onAction={() => {
-                  if (reminder.id && reminder.id !== 'status_check') {
-                    RemindersManager.getInstance().markCompletedOrReschedule(reminder.id);
-                  }
                   handleTriggerAction('cheer');
-                  setTimeout(() => setReminder(null), 900);
+                  setReminder(null);
+                  finishActiveReminder(1500);
                 }}
                 onSnooze={(mins = 5) => {
                   if (reminder.id && reminder.id !== 'status_check') {
                     RemindersManager.getInstance().snoozeReminder(reminder.id, mins);
                   }
-                  handleTriggerAction('nod');
-                  setTimeout(() => setReminder(null), 800);
+                  handleTriggerAction('sad');
+                  setReminder(null);
+                  finishActiveReminder(1500);
                 }}
-                onDismiss={() => setReminder(null)}
+                onDismiss={() => {
+                  setReminder(null);
+                  finishActiveReminder(1500);
+                }}
               />
             </div>
           )}
@@ -806,8 +1194,9 @@ export const App: React.FC = () => {
               isOpen={isMenuOpen}
               onClose={() => setIsMenuOpen(false)}
               characterState={characterStateLabel}
+              assistantName={assistantName}
               isPinned={isPinned}
-              onTogglePin={() => setIsPinned(!isPinned)}
+              onTogglePin={handleTogglePin}
               onHideAppu={() => setIsMenuOpen(false)}
               onReturnHome={() => {
                 setControls((prev) => ({ ...prev, animationState: 'idle' }));
@@ -828,6 +1217,11 @@ export const App: React.FC = () => {
               }}
               onOpenSettings={() => {
                 setShowSettings(true);
+              }}
+              onOpenQuickAppu={() => {
+                setIsMenuOpen(false);
+                setIsActionsPanelOpen(false);
+                setIsChatOpen(true);
               }}
               onQuitAppu={() => {
                 alert('In desktop companion mode, this terminates the native application.');
@@ -872,7 +1266,7 @@ export const App: React.FC = () => {
           {/* Interaction Guide Pill */}
           <div className="stage-hint-pill">
             <Sparkles size={13} className="text-gold" />
-            <span>Click Appu for Menu • Drag to move • Press ⌘0 / ⌘H to summon back to screen</span>
+            <span>Click {assistantName} for Menu • Drag to move • Press ⌘0 / ⌘H to summon back to screen</span>
           </div>
         </div>
 
@@ -895,16 +1289,28 @@ export const App: React.FC = () => {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         isPinned={isPinned}
-        onTogglePin={() => setIsPinned(!isPinned)}
+        onTogglePin={handleTogglePin}
         freeFallEnabled={freeFallEnabled}
         onToggleFreeFall={handleToggleFreeFall}
         updaterStatus={updaterStatus}
+        onAssistantNameChange={setAssistantName}
       />
 
       {/* Reminders Management Modal */}
       <RemindersModal
         isOpen={showRemindersModal}
         onClose={() => setShowRemindersModal(false)}
+      />
+
+      {/* Floating Quick Appu AI Chat Window */}
+      <QuickAppuChat
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        assistantName={assistantName}
+        onOpenSettings={() => {
+          setIsChatOpen(false);
+          setShowSettings(true);
+        }}
       />
     </div>
   );

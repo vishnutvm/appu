@@ -133,18 +133,53 @@ describe('SettingsModal Component - Software Updates', () => {
     expect(onInstallUpdate).toHaveBeenCalledTimes(1);
   });
 
-  it('does not render Companion Behavior section', () => {
+  it('renders Companion Behavior section with Stay on Screen toggle', () => {
+    const onTogglePin = vi.fn();
+    const onToggleFreeFall = vi.fn();
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        isPinned={false}
+        onTogglePin={onTogglePin}
+        freeFallEnabled={true}
+        onToggleFreeFall={onToggleFreeFall}
+        updaterStatus={baseStatus}
+      />
+    );
+
+    expect(screen.getByText('Companion Behavior')).toBeInTheDocument();
+    expect(screen.getByText('Stay on Screen')).toBeInTheDocument();
+    expect(screen.getByText('Free Fall & Throw Physics')).toBeInTheDocument();
+
+    const stayBtn = screen.getByRole('switch', { name: 'Stay on Screen' });
+    fireEvent.click(stayBtn);
+    expect(onTogglePin).toHaveBeenCalledTimes(1);
+
+    const freeFallBtn = screen.getByRole('switch', { name: 'Free Fall Physics' });
+    fireEvent.click(freeFallBtn);
+    expect(onToggleFreeFall).toHaveBeenCalledTimes(1);
+  });
+
+  it('invokes onAssistantNameChange when saving new companion name', () => {
+    const onAssistantNameChange = vi.fn();
     render(
       <SettingsModal
         isOpen={true}
         onClose={vi.fn()}
         updaterStatus={baseStatus}
+        onAssistantNameChange={onAssistantNameChange}
       />
     );
 
-    expect(screen.queryByText('Companion Behavior')).not.toBeInTheDocument();
-    expect(screen.queryByText('Stay on Screen (Pin)')).not.toBeInTheDocument();
-    expect(screen.queryByText('Free Fall & Throw Physics')).not.toBeInTheDocument();
-    expect(screen.queryByText('Autonomous Roaming')).not.toBeInTheDocument();
+    const inputs = screen.getAllByRole('textbox');
+    // inputs[0] is user name, inputs[1] is companion name
+    fireEvent.change(inputs[1], { target: { value: 'Nova' } });
+
+    const saveBtn = screen.getByText('Save Names');
+    fireEvent.click(saveBtn);
+
+    expect(onAssistantNameChange).toHaveBeenCalledWith('Nova');
   });
 });

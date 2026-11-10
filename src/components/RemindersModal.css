@@ -1233,3 +1233,13 @@
   box-shadow: 0 0 0 2px rgba(246, 195, 68, 0.15);
 }
 
+
+.reminders-form-error {
+  margin: 8px 0 4px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}

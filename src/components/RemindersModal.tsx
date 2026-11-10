@@ -16,6 +16,8 @@ import {
   Pause,
   Pencil,
   Repeat,
+  Timer,
+  RotateCcw,
 } from 'lucide-react';
 import './RemindersModal.css';
 
@@ -120,7 +122,7 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
 
   // Flexible Schedule for Add Form
-  const [scheduleType, setScheduleType] = useState<'interval' | 'specific_time'>('interval');
+  const [scheduleType, setScheduleType] = useState<'timer' | 'interval' | 'specific_time'>('interval');
   const [intervalValue, setIntervalValue] = useState(45);
   const [intervalUnit, setIntervalUnit] = useState<'m' | 'h'>('m');
   const [specificTime, setSpecificTime] = useState('16:00');
@@ -133,12 +135,14 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
     return `${y}-${m}-${day}`;
   });
   const [showSchedulePopover, setShowSchedulePopover] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [, setCountdownTick] = useState(0);
 
   // Flexible Schedule for Edit Modal
   const [editingReminder, setEditingReminder] = useState<AppuReminder | null>(null);
   const [editTitle, setEditTitle] = useState('');
-  const [editScheduleType, setEditScheduleType] = useState<'interval' | 'specific_time'>('interval');
-  const [editIntervalValue, setEditIntervalValue] = useState(45);
+  const [editScheduleType, setEditScheduleType] = useState<'timer' | 'interval' | 'specific_time'>('timer');
+  const [editIntervalValue, setEditIntervalValue] = useState(1);
   const [editIntervalUnit, setEditIntervalUnit] = useState<'m' | 'h'>('m');
   const [editSpecificTime, setEditSpecificTime] = useState('16:00');
   const [editDateScheduleMode, setEditDateScheduleMode] = useState<'daily' | 'particular_date'>('daily');
@@ -194,13 +198,17 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
   };
 
   const getScheduleDisplay = (
-    type: 'interval' | 'specific_time',
+    type: 'timer' | 'interval' | 'specific_time',
     val: number,
     unit: 'm' | 'h',
     timeStr: string,
     mode: 'daily' | 'particular_date' = 'daily',
     dateStr?: string
   ) => {
+    if (type === 'timer') {
+      const u = unit === 'h' ? 'h' : 'm';
+      return `In ${val}${u} (Once)`;
+    }
     if (type === 'interval') {
       if (unit === 'h') {
         return `Every ${val}h`;
@@ -221,6 +229,13 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
       setReminders(list);
     });
   }, [manager]);
+
+  // Re-render countdown labels while open
+  useEffect(() => {
+    if (!isOpen) return;
+    const id = setInterval(() => setCountdownTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -268,8 +283,9 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
         setEditSpecificDate(getTodayDateStr());
       }
     } else {
-      setEditScheduleType('interval');
-      const mins = reminder.intervalMinutes || 45;
+      const isTimer = reminder.recurrence === 'none';
+      setEditScheduleType(isTimer ? 'timer' : 'interval');
+      const mins = reminder.intervalMinutes || 1;
       if (mins >= 60 && mins % 60 === 0) {
         setEditIntervalUnit('h');
         setEditIntervalValue(mins / 60);
@@ -282,12 +298,24 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
     setShowSchedulePopover(false);
   };
 
+  const runWithScheduleErrors = (action: () => void): boolean => {
+    try {
+      action();
+      setFormError(null);
+      return true;
+    } catch (err: any) {
+      setFormError(err?.message || 'Could not schedule that reminder.');
+      return false;
+    }
+  };
+
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingReminder) return;
     const trimmedTitle = editTitle.trim();
     if (!trimmedTitle) return;
 
+    const saved = runWithScheduleErrors(() => {
     if (editScheduleType === 'specific_time') {
       const isParticular = editDateScheduleMode === 'particular_date';
       manager.updateReminder(editingReminder.id, {
@@ -295,6 +323,7 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
         type: 'specific_time',
         specificTime: editSpecificTime || '16:00',
         specificDate: isParticular ? editSpecificDate : undefined,
+        recurrence: isParticular ? 'none' : 'daily',
         intervalMinutes: undefined,
       });
     } else {
@@ -302,14 +331,18 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
         1,
         editIntervalUnit === 'h' ? editIntervalValue * 60 : editIntervalValue
       );
+      const isTimer = editScheduleType === 'timer';
       manager.updateReminder(editingReminder.id, {
         title: trimmedTitle,
         type: 'interval',
         intervalMinutes: mins,
+        recurrence: isTimer ? 'none' : 'interval',
         specificTime: undefined,
         specificDate: undefined,
       });
     }
+    });
+    if (!saved) return;
 
     onTaskAdded?.(trimmedTitle);
     setEditingReminder(null);
@@ -320,6 +353,7 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
     if (!title.trim()) return;
 
     const taskTitle = title.trim();
+    const added = runWithScheduleErrors(() => {
     if (scheduleType === 'specific_time') {
       const isParticular = dateScheduleMode === 'particular_date';
       manager.addReminder({
@@ -327,18 +361,23 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
         type: 'specific_time',
         specificTime: specificTime || '16:00',
         specificDate: isParticular ? specificDate : undefined,
+        recurrence: isParticular ? 'none' : 'daily',
       });
     } else {
       const mins = Math.max(
         1,
         intervalUnit === 'h' ? intervalValue * 60 : intervalValue
       );
+      const isTimer = scheduleType === 'timer';
       manager.addReminder({
         title: taskTitle,
         type: 'interval',
         intervalMinutes: mins,
+        recurrence: isTimer ? 'none' : 'interval',
       });
     }
+    });
+    if (!added) return;
 
     onTaskAdded?.(taskTitle);
     setTitle('');
@@ -351,13 +390,15 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
     intervalMinutes?: number;
     specificTime?: string;
   }) => {
-    manager.addReminder(preset);
-    onTaskAdded?.(preset.title);
+    const added = runWithScheduleErrors(() =>
+      manager.addReminder({ ...preset, recurrence: preset.type === 'interval' ? 'interval' : 'daily' })
+    );
+    if (added) onTaskAdded?.(preset.title);
   };
 
   const formatCountdown = (timestamp: number) => {
     const diff = timestamp - Date.now();
-    if (diff <= 0) return 'Next in 1m';
+    if (diff <= 0) return 'Due now';
     const mins = Math.max(1, Math.floor(diff / 60000));
     if (mins < 60) return `Next in ${mins}m`;
     const hrs = Math.floor(mins / 60);
@@ -449,11 +490,25 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
                 <div className="popover-tabs edit-modal-tabs">
                   <button
                     type="button"
+                    className={`popover-tab-btn ${editScheduleType === 'timer' ? 'active' : ''}`}
+                    onClick={() => {
+                      setEditScheduleType('timer');
+                      if (editIntervalValue > 60) setEditIntervalValue(1);
+                    }}
+                  >
+                    <Timer size={12} />
+                    <span>Timer (Once)</span>
+                  </button>
+                  <button
+                    type="button"
                     className={`popover-tab-btn ${editScheduleType === 'interval' ? 'active' : ''}`}
-                    onClick={() => setEditScheduleType('interval')}
+                    onClick={() => {
+                      setEditScheduleType('interval');
+                      if (editIntervalValue < 15) setEditIntervalValue(15);
+                    }}
                   >
                     <Repeat size={12} />
-                    <span>Interval</span>
+                    <span>Repeat</span>
                   </button>
                   <button
                     type="button"
@@ -466,7 +521,53 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
                 </div>
               </div>
 
-              {editScheduleType === 'interval' ? (
+              {editScheduleType === 'timer' ? (
+                <div className="edit-form-field">
+                  <label className="edit-form-label">REMIND ONCE AFTER</label>
+                  <div className="preset-grid edit-presets">
+                    {[1, 2, 5, 10, 15, 30].map((mins) => (
+                      <button
+                        key={mins}
+                        type="button"
+                        className={`preset-pill ${
+                          editIntervalUnit === 'm' && editIntervalValue === mins ? 'selected' : ''
+                        }`}
+                        onClick={() => {
+                          setEditIntervalUnit('m');
+                          setEditIntervalValue(mins);
+                        }}
+                      >
+                        {mins}m
+                      </button>
+                    ))}
+                  </div>
+                  <div className="custom-duration-row edit-custom-duration">
+                    <span className="duration-prefix">In</span>
+                    <div className="custom-duration-unified">
+                      <input
+                        type="number"
+                        min="1"
+                        max="720"
+                        className="custom-duration-num-input"
+                        value={editIntervalValue}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          setEditIntervalValue(isNaN(val) ? 1 : Math.max(1, val));
+                        }}
+                      />
+                      <select
+                        className="custom-duration-unit-select"
+                        value={editIntervalUnit}
+                        onChange={(e) => setEditIntervalUnit(e.target.value as 'm' | 'h')}
+                      >
+                        <option value="m">minutes</option>
+                        <option value="h">hours</option>
+                      </select>
+                    </div>
+                    <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 6 }}>(Once)</span>
+                  </div>
+                </div>
+              ) : editScheduleType === 'interval' ? (
                 <div className="edit-form-field">
                   <label className="edit-form-label">REPEAT INTERVAL</label>
                   <div className="preset-grid edit-presets">
@@ -612,6 +713,11 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
                 </button>
               </div>
             </form>
+            {formError && (
+              <div className="reminders-form-error" role="alert">
+                {formError}
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -673,7 +779,7 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
                     type="button"
                     className="dropdown-item danger"
                     onClick={() => {
-                      reminders.forEach((r) => manager.removeReminder(r.id));
+                      manager.clearAll();
                       setShowHeaderMenu(false);
                     }}
                   >
@@ -787,6 +893,11 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
             + Add Reminder
           </button>
         </form>
+        {formError && (
+          <div className="reminders-form-error" role="alert">
+            {formError}
+          </div>
+        )}
 
         {/* Inline Schedule Configuration Drawer */}
         {showSchedulePopover && (
@@ -799,11 +910,25 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
               <div className="popover-tabs">
                 <button
                   type="button"
+                  className={`popover-tab-btn ${scheduleType === 'timer' ? 'active' : ''}`}
+                  onClick={() => {
+                    setScheduleType('timer');
+                    if (intervalValue > 60) setIntervalValue(1);
+                  }}
+                >
+                  <Timer size={12} />
+                  <span>Timer (Once)</span>
+                </button>
+                <button
+                  type="button"
                   className={`popover-tab-btn ${scheduleType === 'interval' ? 'active' : ''}`}
-                  onClick={() => setScheduleType('interval')}
+                  onClick={() => {
+                    setScheduleType('interval');
+                    if (intervalValue < 15) setIntervalValue(15);
+                  }}
                 >
                   <Repeat size={12} />
-                  <span>Interval</span>
+                  <span>Repeat</span>
                 </button>
                 <button
                   type="button"
@@ -826,7 +951,53 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
               </button>
             </div>
 
-            {scheduleType === 'interval' ? (
+            {scheduleType === 'timer' ? (
+              <div className="inline-panel-content">
+                <div className="preset-grid">
+                  {[1, 2, 5, 10, 15, 30].map((mins) => (
+                    <button
+                      key={mins}
+                      type="button"
+                      className={`preset-pill ${
+                        intervalUnit === 'm' && intervalValue === mins ? 'selected' : ''
+                      }`}
+                      onClick={() => {
+                        setIntervalUnit('m');
+                        setIntervalValue(mins);
+                      }}
+                    >
+                      {mins}m
+                    </button>
+                  ))}
+                </div>
+
+                <div className="custom-duration-row">
+                  <span className="duration-prefix">In</span>
+                  <div className="custom-duration-unified">
+                    <input
+                      type="number"
+                      min="1"
+                      max="720"
+                      className="custom-duration-num-input"
+                      value={intervalValue}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        setIntervalValue(isNaN(val) ? 1 : Math.max(1, val));
+                      }}
+                    />
+                    <select
+                      className="custom-duration-unit-select"
+                      value={intervalUnit}
+                      onChange={(e) => setIntervalUnit(e.target.value as 'm' | 'h')}
+                    >
+                      <option value="m">minutes</option>
+                      <option value="h">hours</option>
+                    </select>
+                  </div>
+                  <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 6 }}>(Once)</span>
+                </div>
+              </div>
+            ) : scheduleType === 'interval' ? (
               <div className="inline-panel-content">
                 <div className="preset-grid">
                   {[15, 30, 45, 60, 120].map((mins) => (
@@ -984,32 +1155,61 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
                         </span>
                       </div>
                       <span className="reminder-schedule-text">
-                        {r.type === 'interval'
-                          ? `Every ${
+                        {r.recurrence === 'none' && r.type === 'interval'
+                          ? `Timer • In ${
                               r.intervalMinutes && r.intervalMinutes >= 60
+                                ? r.intervalMinutes / 60 + 'h'
+                                : (r.intervalMinutes || 1) + 'm'
+                            }`
+                          : r.type === 'interval' && r.intervalMinutes
+                          ? `Every ${
+                              r.intervalMinutes >= 60
                                 ? r.intervalMinutes / 60 + 'h'
                                 : r.intervalMinutes + 'm'
                             }`
+                          : r.type === 'interval'
+                          ? 'Timer'
                           : r.specificDate
                           ? `${formatDateDisplay(r.specificDate)} at ${formatTimeDisplay(r.specificTime)}`
-                          : `Daily at ${formatTimeDisplay(r.specificTime)}`}
+                          : r.specificTime
+                          ? `Daily at ${formatTimeDisplay(r.specificTime)}`
+                          : 'One-time'}
                         {r.enabled && ` • ${formatCountdown(r.nextTriggerAt)}`}
                       </span>
                     </div>
                   </div>
 
                   <div className="card-controls" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      className={`toggle-enable-pill ${r.enabled ? 'on' : 'off'}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        manager.toggleReminder(r.id);
-                      }}
-                      title={r.enabled ? 'Click to Pause' : 'Click to Resume'}
-                    >
-                      {r.enabled ? 'Active' : 'Paused'}
-                    </button>
+                    {r.recurrence === 'none' && !r.enabled ? (
+                      <button
+                        type="button"
+                        className="toggle-enable-pill off done-pill"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!manager.toggleReminder(r.id)) {
+                            setFormError(`"${r.title}" was set for a time that has passed. Click it to pick a new date.`);
+                          } else {
+                            setFormError(null);
+                          }
+                        }}
+                        title="Click to Restart Timer"
+                      >
+                        <RotateCcw size={11} style={{ marginRight: 3 }} />
+                        <span>Restart</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`toggle-enable-pill ${r.enabled ? 'on' : 'off'}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          manager.toggleReminder(r.id);
+                        }}
+                        title={r.enabled ? 'Click to Pause' : 'Click to Resume'}
+                      >
+                        {r.enabled ? 'Active' : 'Paused'}
+                      </button>
+                    )}
 
                     <button
                       type="button"

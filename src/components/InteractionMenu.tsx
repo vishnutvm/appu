@@ -17,11 +17,14 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
   onDance,
   onStandUp,
   onOpenReminders,
+  onOpenQuickAppu,
   onOpenSettings,
   onQuitAppu,
   activeActionId,
   followCursorEnabled = false,
   onToggleFollowCursor,
+  onOpenAssistantTab,
+  assistantName = 'Appu',
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [activeSubmenu, setActiveSubmenu] = useState<'actions' | 'settings' | null>(null);
@@ -72,9 +75,28 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
       ref={menuRef}
       className="interaction-menu-card minimal"
       role="menu"
-      aria-label="Appu Quick Menu"
+      aria-label={`${assistantName} Quick Menu`}
     >
       <div className="minimal-menu-list">
+        {/* --- Chat Direct Item (First Option) --- */}
+        <div
+          role="menuitem"
+          tabIndex={0}
+          className="menu-item-row is-chat-action"
+          onMouseEnter={() => setActiveSubmenu(null)}
+          onClick={() => {
+            if (onOpenQuickAppu) {
+              onOpenQuickAppu();
+            } else if (onOpenAssistantTab) {
+              onOpenAssistantTab('chat');
+            }
+            onClose();
+          }}
+        >
+          <span className="item-title">Chat</span>
+          <span className="key-hint">AI ⌘K</span>
+        </div>
+
         {/* --- Actions Submenu --- */}
         <div
           role="menuitem"
@@ -257,7 +279,7 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
                   onClose();
                 }}
               >
-                <span className="item-title">Hide Appu</span>
+                <span className="item-title">Hide {assistantName}</span>
                 <span className="key-hint">⌘H</span>
               </div>
 
@@ -281,7 +303,7 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
 
         <div className="menu-divider" />
 
-        {/* --- Quit Appu Direct Item --- */}
+        {/* --- Quit Companion Direct Item --- */}
         <div
           role="menuitem"
           tabIndex={0}
@@ -292,7 +314,7 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
             onClose();
           }}
         >
-          <span className="item-title">Quit Appu</span>
+          <span className="item-title">Quit {assistantName}</span>
         </div>
       </div>
     </div>

@@ -1,19 +1,42 @@
-import { app, BrowserWindow, screen, ipcMain, Menu, Tray, globalShortcut, nativeImage } from 'electron';
+import { app, BrowserWindow, screen, ipcMain, Menu, Tray, globalShortcut, nativeImage, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as dotenv from 'dotenv';
+dotenv.config();
+
 import { StorageService } from './storage-service';
 import { UpdaterService } from './updater-service';
 import { registerUpdaterIpcHandlers } from './ipc-updater';
+import { AppuDatabase } from './database/database';
+import { ReminderRepository } from './database/repositories/reminder-repository';
+import { ConversationRepository } from './database/repositories/conversation-repository';
+import { MemoryRepository } from './database/repositories/memory-repository';
+import { AISettingsRepository } from './database/repositories/ai-settings-repository';
+import { CredentialService } from './services/credential-service';
+import { CharacterStateService } from './services/character-state-service';
+import { BackendReminderService } from './services/backend-reminder-service';
+import { GeminiProvider } from './ai/gemini-provider';
+import { ToolRegistry } from './ai/tools/tool-registry';
+import { createReminderTools } from './ai/tools/reminder-tools';
+import { createMemoryTools } from './ai/tools/memory-tools';
+import { createGeneralTools } from './ai/tools/general-tools';
+import { ConversationService } from './ai/conversation-service';
+import { registerAIIpcHandlers } from './ipc-ai';
+import { DEV_SERVER_ORIGIN, isSafeExternalUrl, isTrustedUrl } from './ipc-security';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let storageService: StorageService | null = null;
 let updaterService: UpdaterService | null = null;
+let conversationService: ConversationService | null = null;
+let backendReminderService: BackendReminderService | null = null;
 
 const COMPACT_WIDTH = 220;
 const COMPACT_HEIGHT = 300;
 const MENU_EXPANDED_WIDTH = 570;
-const MENU_EXPANDED_HEIGHT = 380;
+const MENU_EXPANDED_HEIGHT = 420;
+const CHAT_EXPANDED_WIDTH = 580;
+const CHAT_EXPANDED_HEIGHT = 520;
 const MODAL_EXPANDED_WIDTH = 750;
 const MODAL_EXPANDED_HEIGHT = 560;
 
@@ -32,6 +55,30 @@ let currentMenuPlacement: { horizontal: 'left' | 'right'; vertical: 'top' | 'bot
 let isMenuCurrentlyOpen = false;
 let hideSafetyTimeout: NodeJS.Timeout | null = null;
 
+function applyWindowSpaceAndLevel(win: BrowserWindow) {
+  if (!win || win.isDestroyed()) return;
+  win.setFullScreenable(false);
+  win.setAlwaysOnTop(true, 'screen-saver', 1);
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+}
+
+function showAppuWindow(sendRequestShow: boolean = true) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (hideSafetyTimeout) {
+    clearTimeout(hideSafetyTimeout);
+    hideSafetyTimeout = null;
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.showInactive();
+  }
+  applyWindowSpaceAndLevel(mainWindow);
+  mainWindow.webContents.send('appu-visibility-changed', true);
+  if (sendRequestShow) {
+    mainWindow.webContents.send('appu-request-show');
+  }
+  updateTrayMenu(true);
+}
+
 function toggleAppuVisibility() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isVisible()) {
@@ -48,12 +95,7 @@ function toggleAppuVisibility() {
       }
     }, 600);
   } else {
-    if (hideSafetyTimeout) clearTimeout(hideSafetyTimeout);
-    mainWindow.show();
-    mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
-    mainWindow.webContents.send('appu-visibility-changed', true);
-    mainWindow.webContents.send('appu-request-show');
-    updateTrayMenu(true);
+    showAppuWindow();
   }
 }
 
@@ -61,9 +103,9 @@ function summonAppuHome() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (hideSafetyTimeout) clearTimeout(hideSafetyTimeout);
   if (!mainWindow.isVisible()) {
-    mainWindow.show();
-    mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+    mainWindow.showInactive();
   }
+  applyWindowSpaceAndLevel(mainWindow);
   mainWindow.webContents.send('appu-visibility-changed', true);
   mainWindow.webContents.send('appu-request-show');
   mainWindow.webContents.send('context-action', 'go-home');
@@ -88,8 +130,8 @@ function updateTrayMenu(isVisible: boolean) {
         if (!mainWindow || mainWindow.isDestroyed()) return;
         if (!mainWindow.isVisible()) {
           mainWindow.show();
-          mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
         }
+        applyWindowSpaceAndLevel(mainWindow);
         mainWindow.webContents.send('toggle-interaction-menu');
       },
     },
@@ -97,7 +139,8 @@ function updateTrayMenu(isVisible: boolean) {
       label: '🏠 Return to Home Position',
       click: () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          if (!mainWindow.isVisible()) mainWindow.show();
+          if (!mainWindow.isVisible()) mainWindow.showInactive();
+          applyWindowSpaceAndLevel(mainWindow);
           mainWindow.webContents.send('context-action', 'go-home');
         }
       },
@@ -233,6 +276,12 @@ function computeMenuPlacement(
 }
 
 function createWindow() {
+  if (process.platform === 'darwin' && app.dock) {
+    try {
+      app.dock.hide();
+    } catch {}
+  }
+
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth, height: screenHeight, x: displayX, y: displayY } = primaryDisplay.bounds;
 
@@ -253,13 +302,13 @@ function createWindow() {
     hasShadow: false,
     resizable: false,
     skipTaskbar: true,
+    fullscreenable: false,
+    type: 'panel',
     enableLargerThanScreen: true,
     movable: true,
     backgroundColor: '#00000000',
     webPreferences: {
-      preload: fs.existsSync(path.join(__dirname, 'preload.cjs'))
-        ? path.join(__dirname, 'preload.cjs')
-        : path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.js'),
       backgroundThrottling: false,
       contextIsolation: true,
       nodeIntegration: false,
@@ -267,19 +316,40 @@ function createWindow() {
     },
   });
 
-  // Keep window reliably above regular apps
-  mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // Keep window reliably above full-screen and regular applications across all spaces
+  applyWindowSpaceAndLevel(mainWindow);
 
-  const devUrl = 'http://localhost:5173/?mode=companion';
-  mainWindow.loadURL(devUrl).catch(() => {
+  const loadBundledApp = () =>
     mainWindow?.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
       query: { mode: 'companion' },
     });
+  if (app.isPackaged) {
+    loadBundledApp();
+  } else {
+    mainWindow.loadURL(`${DEV_SERVER_ORIGIN}/?mode=companion`).catch(loadBundledApp);
+  }
+
+  // Never navigate or open new windows inside Appu; hand safe links to the system browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) shell.openExternal(url).catch(() => {});
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isTrustedUrl(url)) return;
+    event.preventDefault();
+    if (isSafeExternalUrl(url)) shell.openExternal(url).catch(() => {});
   });
 
   // Default to mouse passthrough so clicks pass through to apps underneath
   mainWindow.setIgnoreMouseEvents(true, { forward: true });
+
+  // A reload drops the renderer's reminder listener until it re-announces readiness
+  mainWindow.webContents.on('did-start-loading', () => {
+    backendReminderService?.setRendererReady(false);
+  });
+  mainWindow.webContents.on('render-process-gone', () => {
+    backendReminderService?.setRendererReady(false);
+  });
 
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow?.webContents.send('menu-placement-changed', currentMenuPlacement);
@@ -305,15 +375,25 @@ ipcMain.on('set-ignore-mouse-events', (event, ignore: boolean) => {
   }
 });
 
-ipcMain.on('set-menu-open', (event, isOpen: boolean, mode: 'menu' | 'modal' = 'menu') => {
+ipcMain.on('set-menu-open', (event, isOpen: boolean, mode: 'menu' | 'modal' | 'chat' = 'menu') => {
   try {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return;
 
     if (isOpen) {
       isMenuCurrentlyOpen = true;
-      const targetExpandedWidth = mode === 'modal' ? MODAL_EXPANDED_WIDTH : MENU_EXPANDED_WIDTH;
-      const targetExpandedHeight = mode === 'modal' ? MODAL_EXPANDED_HEIGHT : MENU_EXPANDED_HEIGHT;
+      const targetExpandedWidth =
+        mode === 'modal'
+          ? MODAL_EXPANDED_WIDTH
+          : mode === 'chat'
+          ? CHAT_EXPANDED_WIDTH
+          : MENU_EXPANDED_WIDTH;
+      const targetExpandedHeight =
+        mode === 'modal'
+          ? MODAL_EXPANDED_HEIGHT
+          : mode === 'chat'
+          ? CHAT_EXPANDED_HEIGHT
+          : MENU_EXPANDED_HEIGHT;
 
       currentWindowWidth = targetExpandedWidth;
       currentWindowHeight = targetExpandedHeight;
@@ -372,7 +452,7 @@ ipcMain.on('set-menu-open', (event, isOpen: boolean, mode: 'menu' | 'modal' = 'm
 
 let lastBumpTime = 0;
 
-ipcMain.on('move-window-by', (event, deltaX: number, deltaY: number) => {
+ipcMain.on('move-window-by', (event, deltaX: number, deltaY: number, allowOffscreen?: boolean) => {
   try {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return;
@@ -401,8 +481,12 @@ ipcMain.on('move-window-by', (event, deltaX: number, deltaY: number) => {
     const minAllX = Math.min(...allDisplays.map((d) => d.bounds.x));
     const maxAllX = Math.max(...allDisplays.map((d) => d.bounds.x + d.bounds.width));
 
-    const minX = Math.round(minAllX - INSET_LEFT);
-    const maxX = Math.round(maxAllX - COMPACT_WIDTH + INSET_RIGHT);
+    const minX = allowOffscreen
+      ? Math.round(minAllX - COMPACT_WIDTH - 60)
+      : Math.round(minAllX - INSET_LEFT);
+    const maxX = allowOffscreen
+      ? Math.round(maxAllX + COMPACT_WIDTH + 60)
+      : Math.round(maxAllX - COMPACT_WIDTH + INSET_RIGHT);
 
     const bounds = activeDisplay.bounds;
     const minY = Math.round(bounds.y - INSET_TOP);
@@ -411,12 +495,13 @@ ipcMain.on('move-window-by', (event, deltaX: number, deltaY: number) => {
     const clampedX = Math.max(minX, Math.min(maxX, rawNewX));
     const clampedY = Math.max(minY, Math.min(maxY, rawNewY));
 
-    const hitLeft = rawNewX <= minX;
-    const hitRight = rawNewX >= maxX;
-    const hitTop = rawNewY <= minY;
-    const hitBottom = rawNewY >= maxY;
+    // Only a move that pushes past an edge is a bump; resting on the floor (dY = 0 at maxY) is not
+    const hitLeft = dX < 0 && rawNewX < minX;
+    const hitRight = dX > 0 && rawNewX > maxX;
+    const hitTop = dY < 0 && rawNewY < minY;
+    const hitBottom = dY > 0 && rawNewY > maxY;
 
-    if (hitLeft || hitRight || hitTop || hitBottom) {
+    if (!allowOffscreen && (hitLeft || hitRight || hitTop || hitBottom)) {
       const now = Date.now();
       if (now - lastBumpTime > 350) {
         lastBumpTime = now;
@@ -529,6 +614,10 @@ ipcMain.handle('get-window-position', (event) => {
   }
 });
 
+ipcMain.handle('get-menu-placement', () => {
+  return currentMenuPlacement;
+});
+
 ipcMain.on('quit-app', () => {
   app.quit();
 });
@@ -552,12 +641,7 @@ ipcMain.on('hide-app-finished', () => {
 });
 
 ipcMain.on('show-app', () => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.show();
-    mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
-    mainWindow.webContents.send('appu-visibility-changed', true);
-    updateTrayMenu(true);
-  }
+  showAppuWindow(false);
 });
 
 ipcMain.on('show-context-menu', (event) => {
@@ -596,6 +680,50 @@ if (!gotTheLock) {
     updaterService = UpdaterService.getInstance(storageService);
     registerUpdaterIpcHandlers(() => mainWindow, updaterService, storageService);
 
+    // Initialize Database & AI Brain Infrastructure
+    const appuDb = AppuDatabase.getInstance(storageService.getDatabasePath());
+    const rawDb = appuDb.getRawDatabase();
+
+    const reminderRepo = new ReminderRepository(rawDb);
+    const conversationRepo = new ConversationRepository(rawDb);
+    const memoryRepo = new MemoryRepository(rawDb);
+    const aiSettingsRepo = new AISettingsRepository(rawDb);
+
+    const credentialService = CredentialService.getInstance(storageService.getUserDataPath());
+    const characterStateService = CharacterStateService.getInstance(() => mainWindow);
+    backendReminderService = BackendReminderService.getInstance(
+      reminderRepo,
+      () => mainWindow,
+      () => showAppuWindow(false)
+    );
+
+    const geminiProvider = new GeminiProvider(credentialService);
+    const toolRegistry = new ToolRegistry();
+
+    createReminderTools(backendReminderService).forEach((t) => toolRegistry.register(t));
+    createMemoryTools(memoryRepo).forEach((t) => toolRegistry.register(t));
+    createGeneralTools(reminderRepo, memoryRepo, conversationRepo, () => mainWindow).forEach((t) =>
+      toolRegistry.register(t)
+    );
+
+    conversationService = ConversationService.getInstance(
+      geminiProvider,
+      toolRegistry,
+      conversationRepo,
+      memoryRepo,
+      aiSettingsRepo,
+      characterStateService
+    );
+
+    registerAIIpcHandlers(
+      conversationService,
+      credentialService,
+      memoryRepo,
+      conversationRepo,
+      backendReminderService,
+      () => mainWindow
+    );
+
     createWindow();
 
     if (mainWindow && updaterService) {
@@ -624,8 +752,8 @@ if (!gotTheLock) {
       if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();
       } else if (mainWindow) {
-        mainWindow.show();
-        mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+        mainWindow.showInactive();
+        applyWindowSpaceAndLevel(mainWindow);
       }
     });
   });

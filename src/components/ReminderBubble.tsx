@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Check, Clock, X, Sparkles } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { AlarmClock, Clock, Check } from 'lucide-react';
 import './ReminderBubble.css';
 
 export interface ReminderBubbleProps {
@@ -10,15 +10,17 @@ export interface ReminderBubbleProps {
   intervalMinutes?: number;
   specificTime?: string;
   type?: 'interval' | 'specific_time';
+  recurrence?: 'none' | 'interval' | 'daily' | 'weekly';
   side?: 'left' | 'right';
+  variant?: 'medium' | 'compact';
+  autoDismissSeconds?: number;
   onAction?: () => void;
   onSnooze?: (minutes?: number) => void;
   onDismiss?: () => void;
 }
 
 /**
- * Animated Mini Appu Avatar Face
- * Expressive robot visor with glowing cyan eyes and gold ear fixtures
+ * Animated Mini Appu Avatar Face (Retained for component and test compatibility)
  */
 export const AppuAvatarFace: React.FC<{ isCelebrating?: boolean }> = ({ isCelebrating }) => {
   return (
@@ -46,11 +48,9 @@ export const AppuAvatarFace: React.FC<{ isCelebrating?: boolean }> = ({ isCelebr
           </linearGradient>
         </defs>
 
-        {/* Golden Left & Right Ear Fixtures */}
         <rect x="1" y="11" width="3" height="9" rx="1.5" fill="url(#goldEarGrad)" />
         <rect x="28" y="11" width="3" height="9" rx="1.5" fill="url(#goldEarGrad)" />
 
-        {/* Main Curved White Helmet */}
         <rect
           x="3.5"
           y="4"
@@ -62,7 +62,6 @@ export const AppuAvatarFace: React.FC<{ isCelebrating?: boolean }> = ({ isCelebr
           strokeWidth="1.2"
         />
 
-        {/* Visor Area */}
         <rect
           x="6.5"
           y="9"
@@ -74,7 +73,6 @@ export const AppuAvatarFace: React.FC<{ isCelebrating?: boolean }> = ({ isCelebr
           strokeWidth="0.8"
         />
 
-        {/* Expressive Eyes: Arc happy eyes if celebrating, glowing circles otherwise */}
         {isCelebrating ? (
           <>
             <path
@@ -97,7 +95,6 @@ export const AppuAvatarFace: React.FC<{ isCelebrating?: boolean }> = ({ isCelebr
           </>
         )}
 
-        {/* Cute Warm Smile */}
         <path
           d="M14 18.2C15 19.1 17 19.1 18 18.2"
           stroke={isCelebrating ? '#f6c344' : '#00d2ee'}
@@ -111,7 +108,7 @@ export const AppuAvatarFace: React.FC<{ isCelebrating?: boolean }> = ({ isCelebr
 };
 
 /**
- * Natural companion voice generator (Never repetitive AI slop)
+ * Natural companion voice generator (Retained for compatibility)
  */
 export function getCompanionReminderVoice(
   title: string,
@@ -161,131 +158,148 @@ export function getCompanionReminderVoice(
   return "Hey friend! Just popping in with your reminder. You've got this! ✨";
 }
 
+/**
+ * Minimal & Lightweight Reminder UI (2026 Redesign)
+ *
+ * - Minimal pill capsule (240 x 56 px) with golden glow and dark glassmorphism
+ * - Golden ringing AlarmClock icon + "Reminder" category + reminder title
+ * - No buttons (clean, unobtrusive)
+ * - Directional speech bubble tail pointing straight at Appu
+ * - Auto-dismisses after 6 seconds (or click anywhere to complete/dismiss)
+ */
 export const ReminderBubble: React.FC<ReminderBubbleProps> = ({
   id,
   title,
-  message,
-  actionText = 'Done',
-  intervalMinutes,
-  specificTime,
-  type,
   side = 'left',
+  variant = 'medium',
+  autoDismissSeconds = 0,
+  intervalMinutes,
+  recurrence,
+  actionText = 'OK',
   onAction,
   onSnooze,
   onDismiss,
 }) => {
-  const [isCelebrating, setIsCelebrating] = useState(false);
-  const [isSnoozed, setIsSnoozed] = useState(false);
+  const [isDismissing, setIsDismissing] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Pick badge label
-  const badgeText = (() => {
-    if (intervalMinutes) {
-      return intervalMinutes === 1 ? '1m timer' : `Every ${intervalMinutes}m`;
+  const isTimer = recurrence === 'none';
+  const kickerLabel = isTimer
+    ? (intervalMinutes ? `${intervalMinutes}m Timer` : 'Timer')
+    : 'Reminder';
+
+  const handleOk = () => {
+    if (isDismissing) return;
+    setIsDismissing(true);
+    if (onAction) {
+      onAction();
+    } else if (onDismiss) {
+      onDismiss();
     }
-    if (specificTime) {
-      return `At ${specificTime}`;
-    }
-    if (type === 'interval') return 'Interval';
-    return 'Reminder';
-  })();
-
-  // Natural companion dialogue
-  const companionVoice = message || getCompanionReminderVoice(title, intervalMinutes, specificTime, type);
-
-  const handleDone = () => {
-    if (isCelebrating || isSnoozed) return;
-    setIsCelebrating(true);
-    onAction?.();
   };
 
-  const handleSnooze = () => {
-    if (isCelebrating || isSnoozed) return;
-    setIsSnoozed(true);
-    onSnooze?.(5);
+  const handleSnooze = (minutes: number = 5) => {
+    if (isDismissing) return;
+    setIsDismissing(true);
+    if (onSnooze) {
+      onSnooze(minutes);
+    } else if (onDismiss) {
+      onDismiss();
+    }
   };
+
+  // Auto-dismiss countdown
+  useEffect(() => {
+    if (isPaused || isDismissing || autoDismissSeconds <= 0) return;
+
+    timerRef.current = setTimeout(() => {
+      handleOk();
+    }, autoDismissSeconds * 1000);
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [isPaused, isDismissing, autoDismissSeconds]);
 
   return (
     <div
-      className={`reminder-speech-bubble ${side === 'right' ? 'tail-left' : 'tail-right'} ${
-        isCelebrating ? 'celebrating-state' : ''
-      }`}
+      className={`reminder-speech-bubble minimal-reminder-pill ${
+        side === 'right' ? 'tail-left' : 'tail-right'
+      } variant-${variant} ${isDismissing ? 'is-dismissing' : ''}`}
       data-testid="reminder-speech-bubble"
-      onMouseEnter={() => window.desktopAPI?.setIgnoreMouseEvents(false)}
-      onMouseLeave={() => window.desktopAPI?.setIgnoreMouseEvents(true)}
+      role="status"
+      aria-live="polite"
+      onClick={handleOk}
+      onMouseEnter={() => {
+        setIsPaused(true);
+        window.desktopAPI?.setIgnoreMouseEvents(false);
+      }}
+      onMouseLeave={() => {
+        setIsPaused(false);
+        window.desktopAPI?.setIgnoreMouseEvents(true);
+      }}
     >
-      {/* Golden Glowing Bezel / Header with Mini Appu Face */}
-      <div className="bubble-header">
-        <div className="bubble-author-row">
-          <AppuAvatarFace isCelebrating={isCelebrating} />
-          <div className="bubble-author-info">
-            <span className="bubble-author-name">Appu</span>
-            <span className="bubble-author-role">Companion</span>
+      <div className="reminder-header-row">
+        {/* Golden Alarm Clock Icon */}
+        <div className="reminder-icon-container" aria-hidden="true">
+          <AlarmClock size={22} className="reminder-alarm-icon" strokeWidth={2.2} />
+        </div>
+
+        {/* Vertical Divider */}
+        <div className="reminder-divider" aria-hidden="true" />
+
+        {/* Reminder Text Block */}
+        <div className="reminder-text-content">
+          {variant !== 'compact' && <div className="reminder-kicker">{kickerLabel}</div>}
+          <div className="reminder-title" title={title}>
+            {title}
           </div>
         </div>
-
-        <div className="bubble-header-actions">
-          <span className="bubble-badge">
-            <Clock size={11} className="badge-icon" />
-            <span>{badgeText}</span>
-          </span>
-
-          {onDismiss && (
-            <button
-              className="bubble-close-btn"
-              onClick={onDismiss}
-              title="Dismiss"
-              aria-label="Dismiss reminder"
-            >
-              <X size={13} />
-            </button>
-          )}
-        </div>
       </div>
 
-      {/* Prominent Task Title Card */}
-      <div className="bubble-task-container">
-        <div className="bubble-task-lead">Reminder</div>
-        <div className="bubble-task-title">{title}</div>
-      </div>
-
-      {/* Warm Companion Voice Message */}
-      <p className="bubble-message">{companionVoice}</p>
-
-      {/* Action Buttons Row */}
-      <div className="bubble-actions">
+      {/* Action Buttons: Snooze (5m) and OK */}
+      <div className="reminder-actions-row">
         <button
-          className={`bubble-action-primary ${isCelebrating ? 'celebrating' : ''}`}
-          onClick={handleDone}
-          disabled={isCelebrating || isSnoozed}
-          data-testid="reminder-done-btn"
-        >
-          {isCelebrating ? (
-            <>
-              <Sparkles size={14} className="action-icon-spin" />
-              <span>Great Job!</span>
-            </>
-          ) : (
-            <>
-              <Check size={14} />
-              <span>{actionText}</span>
-            </>
-          )}
-        </button>
-
-        <button
-          className="bubble-action-secondary"
-          onClick={handleSnooze}
-          disabled={isCelebrating || isSnoozed}
+          type="button"
+          className="reminder-action-btn reminder-snooze-btn"
           data-testid="reminder-snooze-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleSnooze(5);
+          }}
           title="Snooze for 5 minutes"
         >
-          <Clock size={13} />
-          <span>{isSnoozed ? 'Snoozed 5m' : 'Snooze 5m'}</span>
+          <Clock size={12} className="btn-icon" />
+          <span>Snooze (5m)</span>
+        </button>
+
+        <button
+          type="button"
+          className="reminder-action-btn reminder-ok-btn"
+          data-testid="reminder-done-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleOk();
+          }}
+          title="Mark done"
+        >
+          <Check size={13} strokeWidth={2.6} className="btn-icon" />
+          <span>{actionText || 'OK'}</span>
         </button>
       </div>
 
-      {/* Cartoon Speech Tail pointing directly at Appu */}
+      {/* Directional speech tail pointing towards Appu */}
       <div className="speech-tail-point" aria-hidden="true" />
+
+      {/* Subtle bottom auto-dismiss progress line */}
+      {autoDismissSeconds > 0 && !isDismissing && (
+        <div
+          className={`reminder-progress-line ${isPaused ? 'paused' : ''}`}
+          style={{ animationDuration: `${autoDismissSeconds}s` }}
+          aria-hidden="true"
+        />
+      )}
     </div>
   );
 };

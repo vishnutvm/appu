@@ -8,6 +8,7 @@ import { RemindersModal } from '../components/RemindersModal';
 describe('Reminders System', () => {
   beforeEach(() => {
     localStorage.clear();
+    RemindersManager.resetInstanceForTesting();
   });
 
   describe('RemindersManager', () => {
@@ -62,6 +63,24 @@ describe('Reminders System', () => {
       manager.removeReminder(item.id);
       const removed = manager.getReminders().find((r) => r.id === item.id);
       expect(removed).toBeUndefined();
+    });
+
+    it('clears all reminders via clearAll', () => {
+      const manager = RemindersManager.getInstance();
+      manager.addReminder({
+        title: 'Task A',
+        type: 'interval',
+        intervalMinutes: 10,
+      });
+      manager.addReminder({
+        title: 'Task B',
+        type: 'interval',
+        intervalMinutes: 20,
+      });
+
+      expect(manager.getReminders().length).toBeGreaterThan(0);
+      manager.clearAll();
+      expect(manager.getReminders().length).toBe(0);
     });
 
     it('updates reminder title and schedule via updateReminder', () => {

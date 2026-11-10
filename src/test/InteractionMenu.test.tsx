@@ -33,6 +33,7 @@ describe('InteractionMenu Component - Grouped Context Menu', () => {
 
   it('renders crisp minimal grouped items on main menu', () => {
     render(<InteractionMenu {...defaultProps} characterState="Idle" />);
+    expect(screen.getByText('Chat')).toBeInTheDocument();
     expect(screen.getByText('Actions')).toBeInTheDocument();
     expect(screen.getByText('Reminders')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();
@@ -149,6 +150,15 @@ describe('InteractionMenu Component - Grouped Context Menu', () => {
     render(<InteractionMenu {...defaultProps} onQuitAppu={onQuitAppu} onClose={onClose} />);
     fireEvent.click(screen.getByText('Quit Appu'));
     expect(onQuitAppu).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onOpenQuickAppu when clicking Chat', () => {
+    const onOpenQuickAppu = vi.fn();
+    const onClose = vi.fn();
+    render(<InteractionMenu {...defaultProps} onOpenQuickAppu={onOpenQuickAppu} onClose={onClose} />);
+    fireEvent.click(screen.getByText('Chat'));
+    expect(onOpenQuickAppu).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

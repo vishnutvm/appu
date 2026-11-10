@@ -161,7 +161,12 @@ export const CharacterControls: React.FC<CharacterControlsProps> = ({
             ).map(([anim, label]) => (
               <button
                 key={anim}
-                className={`anim-pill-btn ${controls.animationState === anim ? 'active' : ''}`}
+                className={`anim-pill-btn ${
+                  controls.animationState === anim ||
+                  (anim === 'walk' && ['walking', 'turning', 'arriving'].includes(controls.animationState))
+                    ? 'active'
+                    : ''
+                }`}
                 onClick={() => setAnimationState(anim)}
               >
                 <span>{label}</span>

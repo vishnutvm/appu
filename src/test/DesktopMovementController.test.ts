@@ -25,12 +25,12 @@ describe('DesktopMovementController: Drag, Drop, Placement Stability and Free-Fa
     window.dispatchEvent(new CustomEvent('appu-dropped-by-user'));
 
     const latestState = stateChanges[stateChanges.length - 1];
-    expect(latestState.state).toBe('sit');
+    expect(latestState.state).toBe('idle');
 
     // Stays in place and never walks or falls
     vi.advanceTimersByTime(10000);
     const postTimerState = stateChanges[stateChanges.length - 1];
-    expect(postTimerState.state).toBe('sit');
+    expect(postTimerState.state).toBe('idle');
     const walkedOrFell = stateChanges.some((s) => s.state === 'walk' || s.state === 'falling');
     expect(walkedOrFell).toBe(false);
   });
@@ -47,7 +47,7 @@ describe('DesktopMovementController: Drag, Drop, Placement Stability and Free-Fa
 
     expect(startPhysicsSpy).not.toHaveBeenCalled();
     const latestState = stateChanges[stateChanges.length - 1];
-    expect(latestState.state).toBe('sit');
+    expect(latestState.state).toBe('idle');
   });
 
   it('3. Quick downward flick (speed >= 1350 px/s) triggers free-fall physics', () => {
@@ -107,6 +107,6 @@ describe('DesktopMovementController: Drag, Drop, Placement Stability and Free-Fa
 
     expect(startPhysicsSpy).not.toHaveBeenCalled();
     const latestState = stateChanges[stateChanges.length - 1];
-    expect(latestState.state).toBe('sit');
+    expect(latestState.state).toBe('idle');
   });
 });

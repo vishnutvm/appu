@@ -36,5 +36,13 @@ export const FloatingEmoteIndicator: React.FC<FloatingEmoteIndicatorProps> = ({
     );
   }
 
+  if (state === 'sad') {
+    return (
+      <div className="floating-emote-indicator sad-badge" aria-hidden="true">
+        <span className="sad-symbol">💧</span>
+      </div>
+    );
+  }
+
   return null;
 };

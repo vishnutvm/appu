@@ -7,9 +7,31 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  z-index: 2000;
   pointer-events: auto;
   animation: fadeIn 0.15s ease-out;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+/* Companion mode specific positioning: do not cover screen with dark tint,
+   and anchor beside Appu depending on horizontal placement */
+.appu-desktop-companion-viewport .settings-modal-backdrop {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.appu-desktop-companion-viewport.menu-h-left .settings-modal-backdrop {
+  justify-content: flex-end;
+  padding-right: 236px;
+  padding-left: 16px;
+}
+
+.appu-desktop-companion-viewport.menu-h-right .settings-modal-backdrop {
+  justify-content: flex-start;
+  padding-left: 236px;
+  padding-right: 16px;
 }
 
 @keyframes fadeIn {
@@ -22,18 +44,25 @@
 }
 
 .settings-modal-card {
-  width: 370px;
-  max-width: 92vw;
+  width: 440px;
+  max-width: calc(100vw - 32px);
+  max-height: 520px;
+  display: flex;
+  flex-direction: column;
   background: #121620;
   background: linear-gradient(180deg, #161b26 0%, #10141e 100%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 1px rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  padding: 16px 18px 14px;
   color: #f1f5f9;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   user-select: none;
   animation: scaleIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 @keyframes scaleIn {
@@ -51,7 +80,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .settings-title-row {
@@ -93,6 +123,26 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+
+/* Custom Mac-style sleek scrollbar */
+.settings-body::-webkit-scrollbar {
+  width: 5px;
+}
+.settings-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.settings-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+}
+.settings-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .settings-group {
@@ -167,18 +217,24 @@
   align-items: center;
   gap: 5px;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
-.save-persona-btn:hover {
+.save-persona-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.18);
 }
 
+.save-persona-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .save-persona-btn.saved {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.22);
-  color: #f8fafc;
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #34d399;
 }
 
 .settings-row {
@@ -192,6 +248,8 @@
   display: flex;
   flex-direction: column;
   gap: 1.5px;
+  flex: 1;
+  min-width: 0;
 }
 
 .row-main {
@@ -217,6 +275,7 @@
   border-radius: 20px;
   cursor: pointer;
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
 }
 
 .beta-toggle-pill:hover {
@@ -285,6 +344,7 @@
   cursor: pointer;
   transition: all 120ms ease;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .check-update-btn:hover:not(:disabled) {
@@ -500,9 +560,12 @@
 
 /* Footer */
 .settings-footer {
-  margin-top: 14px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .settings-done-btn {
@@ -510,7 +573,7 @@
   color: #0f172a;
   border: none;
   border-radius: 7px;
-  padding: 6px 16px;
+  padding: 6px 18px;
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
@@ -552,4 +615,212 @@
 
 .text-rose {
   color: #fb7185;
+}
+
+/* =========================================================================
+   AI BRAIN & INTELLIGENCE CONFIGURATION STYLES
+   ========================================================================= */
+
+.ai-select {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #f8fafc;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 7px 28px 7px 10px;
+  outline: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.ai-select:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background-color: rgba(0, 0, 0, 0.45);
+}
+
+.ai-select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+}
+
+.ai-select option {
+  background: #161b26;
+  color: #f8fafc;
+  padding: 6px;
+}
+
+.ai-api-status-pill {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ai-api-status-pill.configured {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.ai-api-status-pill.missing {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+
+.ai-api-key-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  align-items: center;
+}
+
+.ai-api-key-row .settings-text-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+}
+
+.ai-api-key-row .save-persona-btn,
+.ai-api-key-row .ai-secondary-btn {
+  height: 32px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ai-button-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ai-secondary-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #e2e8f0;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 6px;
+  height: 30px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
+  box-sizing: border-box;
+  transition: all 0.15s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-secondary-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.ai-secondary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-test-status-box {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-test-status-box.success {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #34d399;
+}
+
+.ai-test-status-box.error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+}
+
+.ai-memories-container {
+  margin-top: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: 2px;
+}
+
+.ai-memory-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 7px;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-memory-content {
+  font-size: 11px;
+  color: #cbd5e1;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
+.ai-memory-delete-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.ai-memory-delete-btn:hover {
+  color: #ef4444;
+}
+
+.ai-key-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.ai-key-row .settings-text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-key-row .ai-secondary-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
 }

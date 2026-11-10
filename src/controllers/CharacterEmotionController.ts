@@ -58,8 +58,9 @@ export class CharacterEmotionController {
     }
 
     this.currentEmotion = emotion;
-    this.currentPriority = priority;
-    this.durationRemaining = duration;
+    // A zero-duration emotion never expires, so it must not lock out later emotions
+    this.currentPriority = duration > 0 ? priority : EmotionPriority.BASELINE;
+    this.durationRemaining = Math.max(0, duration);
     this.onEmotionChange?.(this.currentEmotion);
     return true;
   }

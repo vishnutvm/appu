@@ -27,11 +27,27 @@ interface AppuSceneProps {
   onDespawnComplete?: () => void;
 }
 
-const playSpawnChime = (type: 'in' | 'out') => {
+let appuAudioCtx: AudioContext | null = null;
+const getAppuAudioContext = (): AudioContext | null => {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    if (!AudioCtx) return null;
+    if (!appuAudioCtx || appuAudioCtx.state === 'closed') {
+      appuAudioCtx = new AudioCtx();
+    }
+    if (appuAudioCtx.state === 'suspended') {
+      appuAudioCtx.resume().catch(() => {});
+    }
+    return appuAudioCtx;
+  } catch {
+    return null;
+  }
+};
+
+const playSpawnChime = (type: 'in' | 'out') => {
+  try {
+    const ctx = getAppuAudioContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     if (type === 'in') {
@@ -87,9 +103,8 @@ const playSpawnChime = (type: 'in' | 'out') => {
 
 const playTactileBumpSound = (intensity: number = 0.5) => {
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    const ctx = getAppuAudioContext();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
@@ -110,6 +125,24 @@ const playTactileBumpSound = (intensity: number = 0.5) => {
     // Ignore if audio permissions blocked before user interaction
   }
 };
+
+
+const DRAG_START_THRESHOLD_PX = 4;
+
+// In desktop mode these are driven by DesktopMovementController (window walking / free-fall)
+const DESKTOP_OWNED_STATES = new Set<AppuAnimationState>([
+  'walk',
+  'walking',
+  'turning',
+  'arriving',
+  'being_dragged',
+  'released',
+  'rising',
+  'falling',
+  'landing',
+  'bouncing',
+  'recovering',
+]);
 
 export const AppuScene: React.FC<AppuSceneProps> = ({
   controls,
@@ -184,6 +217,7 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
   const pointerLastXRef = useRef(0);
   const pointerLastScreenRef = useRef({ x: 0, y: 0 });
   const pointerHistoryRef = useRef<Array<{ x: number; y: number; time: number }>>([]);
+  const dragStartedRef = useRef(false);
   const physicsDeformRef = useRef<{
     squashFactor: { x: number; y: number };
     tiltAngle: number;
@@ -212,12 +246,14 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
   const nextBlinkIntervalRef = useRef(3.0);
 
   // 5. Shadow position tracking (ground level aligned with boot soles at -0.875)
-  const [shadowPos, setShadowPos] = useState<[number, number, number]>([0, -0.875, 0]);
+  const shadowGroupRef = useRef<THREE.Group>(null);
 
   // 6. Behaviour Controller Instance
   const behaviourCtrl = useRef(
     new CharacterBehaviourController({
       onStateChange: (newState) => {
+        // Controller-originated; the UI-sync effect below must not re-trigger it
+        lastUserAnimRef.current = newState;
         onControlsChange((prev) => ({ ...prev, animationState: newState }));
       },
       onEmotionChange: (newEmotion) => {
@@ -226,9 +262,14 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
     })
   );
 
+  // Emotions the controller itself emitted come back via controls.emotion; they must
+  // not become the new baseline or temporary reactions would stick forever
+  const controllerEmotionRef = useRef<AppuEmotion | null>(null);
+
   // Wire controllers together on mount
   useEffect(() => {
     emotionCtrl.current.setCallback((newEmotion) => {
+      controllerEmotionRef.current = newEmotion;
       onControlsChange((prev) => ({ ...prev, emotion: newEmotion }));
     });
 
@@ -316,7 +357,9 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
 
   // Sync emotion changes directly from UI buttons
   useEffect(() => {
+    if (controls.emotion === controllerEmotionRef.current) return;
     emotionCtrl.current.setBaselineEmotion(controls.emotion);
+    emotionCtrl.current.reset();
   }, [controls.emotion]);
 
   // Sync autonomous roaming based on companion vs studio mode
@@ -338,18 +381,22 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
   useEffect(() => {
     if (controls.animationState !== lastUserAnimRef.current) {
       lastUserAnimRef.current = controls.animationState;
-      if (controls.animationState === 'walk') {
-        const targetX = (Math.random() * 2 - 1) * 1.3;
-        const targetZ = (Math.random() * 2 - 1) * 0.65;
-        const currentPos = transformCtrl.current.getPosition();
-        behaviourCtrl.current.startWalkTo(targetX, targetZ, rotationCtrl.current, movementCtrl.current, currentPos);
+      if (controls.animationState === 'walk' || controls.animationState === 'walking') {
+        if (!controls.transparentBackground) {
+          const targetX = (Math.random() * 2 - 1) * 1.3;
+          const targetZ = (Math.random() * 2 - 1) * 0.65;
+          const currentPos = transformCtrl.current.getPosition();
+          behaviourCtrl.current.startWalkTo(targetX, targetZ, rotationCtrl.current, movementCtrl.current, currentPos);
+        } else {
+          behaviourCtrl.current.setState('walking');
+        }
       } else if (AppuActionRegistry.getById(controls.animationState)) {
         behaviourCtrl.current.triggerAction(controls.animationState as AppuActionId);
       } else {
         behaviourCtrl.current.setState(controls.animationState);
       }
     }
-  }, [controls.animationState]);
+  }, [controls.animationState, controls.transparentBackground]);
 
   // Listen for direct action triggers via window events
   useEffect(() => {
@@ -461,6 +508,13 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
       mouseNdcRef.current.y = -(clientY / rect.height) * 2 + 1;
 
       if (dragModeRef.current === 'grab') {
+        if (!dragStartedRef.current) {
+          const moved = Math.hypot(e.screenX - pointerLastScreenRef.current.x, e.screenY - pointerLastScreenRef.current.y);
+          if (moved < DRAG_START_THRESHOLD_PX) return;
+          // Only a real drag interrupts walking / physics; a click must not
+          dragStartedRef.current = true;
+          window.dispatchEvent(new CustomEvent('appu-drag-start'));
+        }
         const screenDx = Math.round(e.screenX - pointerLastScreenRef.current.x);
         const screenDy = Math.round(e.screenY - pointerLastScreenRef.current.y);
 
@@ -525,20 +579,26 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
         pointerHistoryRef.current = [];
 
         if (controls.transparentBackground) {
-          onControlsChange((prev) => ({
-            ...prev,
-            animationState: 'idle',
-            emotion: 'happy',
-            isGrabbed: false,
-          }));
-          if (!res.isClick) {
+          if (dragStartedRef.current) {
+            onControlsChange((prev) => ({
+              ...prev,
+              animationState: 'idle',
+              emotion: 'happy',
+              isGrabbed: false,
+            }));
             window.dispatchEvent(
               new CustomEvent('appu-released-with-velocity', {
                 detail: { vx: releaseScreenVx, vy: releaseScreenVy },
               })
             );
+          } else {
+            onControlsChange((prev) => ({ ...prev, isGrabbed: false }));
           }
         }
+        if (res.isClick && !dragStartedRef.current) {
+          window.dispatchEvent(new CustomEvent('appu-click-released'));
+        }
+        dragStartedRef.current = false;
       }
       dragModeRef.current = 'none';
       dom.style.cursor = 'default';
@@ -568,8 +628,7 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
     pointerLastScreenRef.current.x = e.screenX;
     pointerLastScreenRef.current.y = e.screenY;
     pointerHistoryRef.current = [{ x: e.screenX, y: e.screenY, time: performance.now() }];
-
-    window.dispatchEvent(new CustomEvent('appu-drag-start'));
+    dragStartedRef.current = false;
 
     const rect = gl.domElement.getBoundingClientRect();
     const clientX = e.clientX - rect.left;
@@ -653,6 +712,11 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
         movementCtrl.current
       );
     } else {
+      // Desktop mode: the window itself walks/falls (DesktopMovementController owns those
+      // states); everything else (actions, taps, wake-up) still needs its timers ticked
+      if (!DESKTOP_OWNED_STATES.has(behaviourCtrl.current.getState())) {
+        behaviourCtrl.current.update(dt, transformCtrl.current, rotationCtrl.current, movementCtrl.current);
+      }
       transformCtrl.current.setPosition(0, 0, 0);
     }
 
@@ -682,7 +746,7 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
         );
       }
     } else if (controls.transparentBackground && isWalking) {
-      currentSpeed = 1.0;
+      currentSpeed = 0.72;
     } else if (isGrabbed) {
       // instantaneous speed while dragging for follow-through
       currentSpeed = Math.min(1.4, interactionCtrl.current.getDragVelocity().length());
@@ -733,8 +797,12 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
       y: reactionCtrl.current.getSquash().y + deform.squashFactor.y,
     };
 
+    const activeAnimState = controls.transparentBackground
+      ? (isWalking ? 'walking' : controls.animationState)
+      : behaviourCtrl.current.getState();
+
     animationCtrl.current.update(skeletalRefs, {
-      state: behaviourCtrl.current.getState(),
+      state: activeAnimState,
       worldPosition: transformCtrl.current.getPosition(),
       yaw: rotResult.currentYaw,
       speed: currentSpeed,
@@ -760,7 +828,7 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
     // I. Contact shadow position update (only when ground pedestal shadow is active)
     const curPos = transformCtrl.current.getPosition();
     if (controls.groundShadowEnabled && controls.showPedestal && !controls.transparentBackground) {
-      setShadowPos([curPos.x, -0.875, curPos.z]);
+      shadowGroupRef.current?.position.set(curPos.x, 0, curPos.z);
     }
 
     // J. Portal ring zero-rerender GPU transform
@@ -970,14 +1038,16 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
 
       {/* Dynamic Ground Contact Shadow - only rendered in studio stage when pedestal floor is present, never on transparent desktop overlay */}
       {controls.groundShadowEnabled && controls.showPedestal && !controls.transparentBackground && (
-        <ContactShadows
-          position={shadowPos}
-          opacity={0.4}
-          scale={2.2}
-          blur={1.6}
-          far={1.2}
-          color="#010612"
-        />
+        <group ref={shadowGroupRef}>
+          <ContactShadows
+            position={[0, -0.875, 0]}
+            opacity={0.4}
+            scale={2.2}
+            blur={1.6}
+            far={1.2}
+            color="#010612"
+          />
+        </group>
       )}
     </>
   );

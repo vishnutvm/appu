@@ -131,10 +131,30 @@
   height: 0;
 }
 
-/* Fallback: when menu is on right edge, pop out to the left */
-.menu-h-left .submenu-flyout {
+/* Horizontal positioning: when menu is on right edge, pop out to the left */
+.menu-h-left .submenu-flyout,
+.appu-desktop-companion-viewport.menu-h-left .submenu-flyout {
   left: auto;
   right: calc(100% + 6px);
+}
+
+.menu-h-right .submenu-flyout,
+.appu-desktop-companion-viewport.menu-h-right .submenu-flyout {
+  left: calc(100% + 6px);
+  right: auto;
+}
+
+/* Vertical positioning: when near bottom of screen, anchor upwards from bottom of row */
+.menu-v-bottom .submenu-flyout,
+.appu-desktop-companion-viewport.menu-v-bottom .submenu-flyout {
+  top: auto;
+  bottom: -4px;
+}
+
+.menu-v-top .submenu-flyout,
+.appu-desktop-companion-viewport.menu-v-top .submenu-flyout {
+  top: -4px;
+  bottom: auto;
 }
 
 @keyframes submenu-pop {

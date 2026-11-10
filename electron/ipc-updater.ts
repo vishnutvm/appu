@@ -1,33 +1,8 @@
-import { ipcMain, BrowserWindow, IpcMainInvokeEvent, IpcMainEvent } from 'electron';
+import { ipcMain, BrowserWindow } from 'electron';
+import { isTrustedSender } from './ipc-security';
 import { UpdaterService } from './updater-service';
 import { StorageService } from './storage-service';
 import { ReleaseChannel } from './types';
-
-/**
- * Validates that an IPC call originates directly from the trusted main window top frame.
- * Rejects calls from child iframes, third-party frames, or untrusted webContents.
- */
-function isTrustedSender(
-  event: IpcMainInvokeEvent | IpcMainEvent,
-  mainWindow: BrowserWindow | null
-): boolean {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return false;
-  }
-
-  // Ensure the sender is the exact webContents of our main window
-  if (event.sender !== mainWindow.webContents) {
-    return false;
-  }
-
-  // Reject requests originating from nested child iframes
-  if (event.senderFrame && event.senderFrame.parent !== null) {
-    console.warn('[IPC Security] Rejected call from child frame');
-    return false;
-  }
-
-  return true;
-}
 
 export function registerUpdaterIpcHandlers(
   getMainWindow: () => BrowserWindow | null,

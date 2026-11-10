@@ -5,8 +5,8 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   setIgnoreMouseEvents: (ignore: boolean) => {
     ipcRenderer.send('set-ignore-mouse-events', ignore);
   },
-  moveWindowBy: (deltaX: number, deltaY: number) => {
-    ipcRenderer.send('move-window-by', deltaX, deltaY);
+  moveWindowBy: (deltaX: number, deltaY: number, allowOffscreen?: boolean) => {
+    ipcRenderer.send('move-window-by', deltaX, deltaY, allowOffscreen);
   },
   setWindowPosition: (x: number, y: number) => {
     ipcRenderer.send('set-window-position', x, y);
@@ -64,8 +64,11 @@ contextBridge.exposeInMainWorld('desktopAPI', {
       ipcRenderer.removeListener('appu-visibility-changed', listener);
     };
   },
-  setMenuOpen: (isOpen: boolean, mode?: 'menu' | 'modal') => {
+  setMenuOpen: (isOpen: boolean, mode?: 'menu' | 'modal' | 'chat') => {
     ipcRenderer.send('set-menu-open', isOpen, mode);
+  },
+  getMenuPlacement: (): Promise<{ horizontal: 'left' | 'right'; vertical: 'top' | 'bottom' }> => {
+    return ipcRenderer.invoke('get-menu-placement');
   },
   onMenuPlacementChanged: (callback: (placement: { horizontal: 'left' | 'right'; vertical: 'top' | 'bottom' }) => void) => {
     const listener = (_event: any, placement: any) => callback(placement);
@@ -140,6 +143,94 @@ contextBridge.exposeInMainWorld('desktopAPI', {
     },
     saveSettings: (settings: Partial<StorageSettings>): Promise<boolean> => {
       return ipcRenderer.invoke('storage:save-settings', settings);
+    },
+  },
+
+  // Intelligent AI Brain Bridge (Google Gemini)
+  ai: {
+    sendMessage: (payload: { conversationId?: string; text: string }): Promise<any> => {
+      return ipcRenderer.invoke('ai:send-message', payload);
+    },
+    getConversation: (conversationId?: string): Promise<any> => {
+      return ipcRenderer.invoke('ai:get-conversation', conversationId);
+    },
+    createConversation: (title?: string): Promise<any> => {
+      return ipcRenderer.invoke('ai:create-conversation', title);
+    },
+    clearConversation: (conversationId: string): Promise<any> => {
+      return ipcRenderer.invoke('ai:clear-conversation', conversationId);
+    },
+    getStatus: (): Promise<{
+      enabled: boolean;
+      provider: string;
+      model: string;
+      hasApiKey: boolean;
+      isSecureStorageAvailable: boolean;
+      error?: string;
+    }> => {
+      return ipcRenderer.invoke('ai:get-status');
+    },
+    setConfig: (config: {
+      enabled?: boolean;
+      model?: string;
+      apiKey?: string;
+      clearKey?: boolean;
+    }): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('ai:set-config', config);
+    },
+    testConnection: (): Promise<{ valid: boolean; error?: string }> => {
+      return ipcRenderer.invoke('ai:test-connection');
+    },
+    getMemories: (query?: string): Promise<any[]> => {
+      return ipcRenderer.invoke('ai:get-memories', query);
+    },
+    deleteMemory: (memoryId: string): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('ai:delete-memory', memoryId);
+    },
+    saveMemory: (payload: { content: string; category?: string; importance?: number }): Promise<any> => {
+      return ipcRenderer.invoke('ai:save-memory', payload);
+    },
+    getReminders: (): Promise<any[]> => {
+      return ipcRenderer.invoke('ai:get-reminders');
+    },
+    syncReminders: (reminders: any[]): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('ai:sync-reminders-from-renderer', reminders);
+    },
+    deleteReminder: (reminderId: string): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('ai:delete-reminder', reminderId);
+    },
+    completeReminder: (reminderId: string): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('ai:complete-reminder', reminderId);
+    },
+    snoozeReminder: (reminderId: string, minutes: number = 5): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('ai:snooze-reminder', reminderId, minutes);
+    },
+    clearReminders: (): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('ai:clear-reminders');
+    },
+    notifyRemindersReady: (): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('ai:reminders-ready');
+    },
+    onStateChanged: (callback: (data: { state: string; detail?: string; timestamp: number }) => void): (() => void) => {
+      const listener = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('appu-ai-state-changed', listener);
+      return () => {
+        ipcRenderer.removeListener('appu-ai-state-changed', listener);
+      };
+    },
+    onRemindersSynced: (callback: (reminders: any[]) => void): (() => void) => {
+      const listener = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('appu-reminders-synced', listener);
+      return () => {
+        ipcRenderer.removeListener('appu-reminders-synced', listener);
+      };
+    },
+    onOpenSettings: (callback: () => void): (() => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('open-settings-modal', listener);
+      return () => {
+        ipcRenderer.removeListener('open-settings-modal', listener);
+      };
     },
   },
 });

@@ -26,12 +26,25 @@ export const useFaceScreenTexture = (
 
   const animFrameRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(performance.now());
+  // Gaze is read live (the caller passes a mutable ref object) so following the mouse
+  // doesn't need a React re-render per frame
+  const eyeOffsetRef = useRef(eyeOffset);
+  eyeOffsetRef.current = eyeOffset;
 
   useEffect(() => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     let isRunning = true;
+    let lastGazeX = Number.NaN;
+    let lastGazeY = Number.NaN;
+    const isAnimated =
+      emotion === 'dizzy' ||
+      emotion === 'hurt' ||
+      emotion === 'thinking' ||
+      emotion === 'sleepy' ||
+      emotion === 'curious' ||
+      isBlinking;
 
     const render = () => {
       const w = canvas.width;
@@ -63,8 +76,11 @@ export const useFaceScreenTexture = (
       ctx.restore();
 
       // Eye coordinates with gaze offset
-      const lookX = eyeOffset.x * 40;
-      const lookY = -eyeOffset.y * 25;
+      const gaze = eyeOffsetRef.current;
+      lastGazeX = gaze.x;
+      lastGazeY = gaze.y;
+      const lookX = gaze.x * 40;
+      const lookY = -gaze.y * 25;
 
       const leftEyeX = 338 + lookX;
       const leftEyeY = 286 + lookY;
@@ -558,8 +574,8 @@ export const useFaceScreenTexture = (
         ctx.beginPath();
         ctx.ellipse(0, 0, 16, 20, 0, 0, Math.PI * 2);
         ctx.stroke();
-      } else if (emotion === 'hurt') {
-        // Downturned concerned/pained mouth
+      } else if (emotion === 'hurt' || emotion === 'sad') {
+        // Downturned concerned/pained/sad mouth
         ctx.strokeStyle = '#ffae00';
         ctx.lineWidth = 7;
         ctx.lineCap = 'round';
@@ -611,22 +627,20 @@ export const useFaceScreenTexture = (
       ctx.restore();
 
       texture.needsUpdate = true;
+    };
 
-      // Continue animating if animated emotion or blinking
-      if (
-        isRunning &&
-        (emotion === 'dizzy' ||
-          emotion === 'hurt' ||
-          emotion === 'thinking' ||
-          emotion === 'sleepy' ||
-          emotion === 'curious' ||
-          isBlinking)
-      ) {
-        animFrameRef.current = requestAnimationFrame(render);
+    // Redraw every frame only while animated; otherwise only when the gaze has visibly moved
+    const loop = () => {
+      if (!isRunning) return;
+      const gaze = eyeOffsetRef.current;
+      if (isAnimated || Math.abs(gaze.x - lastGazeX) > 0.004 || Math.abs(gaze.y - lastGazeY) > 0.004) {
+        render();
       }
+      animFrameRef.current = requestAnimationFrame(loop);
     };
 
     render();
+    animFrameRef.current = requestAnimationFrame(loop);
 
     return () => {
       isRunning = false;
@@ -635,7 +649,7 @@ export const useFaceScreenTexture = (
         animFrameRef.current = null;
       }
     };
-  }, [canvas, texture, emotion, isBlinking, blinkProgress, mouthOpen, eyeOffset.x, eyeOffset.y]);
+  }, [canvas, texture, emotion, isBlinking, blinkProgress, mouthOpen]);
 
   return texture;
 };

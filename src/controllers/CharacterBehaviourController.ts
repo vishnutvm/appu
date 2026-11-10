@@ -74,6 +74,13 @@ export class CharacterBehaviourController {
       if (this.stateTimer < 0.25) return;
     }
 
+    // A plain state change replaces any running action, otherwise update() keeps
+    // honouring the old action (e.g. a tap while sitting froze Appu in 'surprised')
+    if (this.currentActionId && APPU_ACTIONS[this.currentActionId]?.animation !== state) {
+      this.currentActionId = null;
+      this.isLooping = false;
+    }
+
     this.currentState = state;
     this.stateTimer = 0;
     this.stateDuration = duration > 0 ? duration : 3.0;
@@ -81,7 +88,7 @@ export class CharacterBehaviourController {
 
     if (emotion) {
       if (this.emotionCtrl) {
-        this.emotionCtrl.triggerNamedEmotion(emotion, duration);
+        this.emotionCtrl.triggerNamedEmotion(emotion, this.stateDuration);
       } else {
         this.callbacks.onEmotionChange(emotion);
       }
@@ -147,9 +154,9 @@ export class CharacterBehaviourController {
    * Awakens Appu from sleep with yawn, eye blinks, and transition to stretch or standing.
    */
   public wakeUp() {
+    this.setState('wake_up', 'happy', 2.2);
     this.currentActionId = 'wake_up';
     this.isLooping = false;
-    this.setState('wake_up', 'happy', 2.2);
   }
 
   public isSleeping(): boolean {
@@ -216,9 +223,13 @@ export class CharacterBehaviourController {
   }
 
   public onPettingStart() {
-    if (!this.isSleeping()) {
-      this.setState('interacting', 'happy', 1.5);
+    if (this.isSleeping()) return;
+    if (this.isGroundPose()) {
+      // Keep the pose; just react with the face
+      this.emotionCtrl?.triggerNamedEmotion('happy', 1.5);
+      return;
     }
+    this.setState('interacting', 'happy', 1.5);
   }
 
   public onPettingEnd() {
@@ -232,7 +243,7 @@ export class CharacterBehaviourController {
       // Tapping/clicking Appu while sleeping wakes him up!
       this.wakeUp();
     } else if (this.isGroundPose()) {
-      this.setState('surprised', 'happy', 0.4);
+      this.emotionCtrl?.triggerNamedEmotion('happy', 1.0);
     } else {
       this.setState('surprised', 'happy', 0.6);
     }

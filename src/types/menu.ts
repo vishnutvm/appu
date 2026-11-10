@@ -51,5 +51,7 @@ export interface InteractionMenuProps {
   onToggleFollowCursor?: () => void;
   onWalkToHere?: () => void;
   onOpenReminders?: () => void;
+  onOpenQuickAppu?: () => void;
   onOpenAssistantTab?: (tab: 'reminders' | 'tasks' | 'notes' | 'chat') => void;
+  assistantName?: string;
 }

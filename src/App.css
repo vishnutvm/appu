@@ -162,7 +162,7 @@ html, body, #root {
 
 .appu-desktop-companion-viewport.menu-v-bottom .companion-menu-anchor {
   top: auto;
-  bottom: 50px;
+  bottom: 56px;
   height: auto;
 }
 
@@ -923,5 +923,41 @@ html, body, #root {
   }
   .stage-hint-pill {
     left: 20px;
+  }
+}
+
+/* Studio: keep the chat below the window header */
+.appu-studio-window .quick-appu-chat-window {
+  top: 72px;
+  max-height: calc(100% - 88px);
+}
+
+/* Header: collapse launcher labels to icons instead of wrapping */
+.window-header {
+  gap: 12px;
+  min-width: 0;
+}
+
+.window-actions,
+.companion-mode-launcher-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1180px) {
+  .companion-mode-launcher-btn span {
+    display: none;
+  }
+  .companion-mode-launcher-btn {
+    padding: 6px 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .brand-sub {
+    display: none;
+  }
+  .window-ctrl-btn {
+    display: none;
   }
 }

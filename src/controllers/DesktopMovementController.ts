@@ -20,7 +20,7 @@ export const FLICK_SPEED_THRESHOLD = 1350;
 
 export class DesktopMovementController {
   private currentState: CompanionState = 'INITIALIZING';
-  private speed: number = 100; // pixels per second on screen
+  private speed: number = 135; // pixels per second on screen for calm, natural walking pace
   private screenWidth: number = 1600;
   private screenHeight: number = 900;
   private workAreaX: number = 0;
@@ -34,8 +34,16 @@ export class DesktopMovementController {
   private strollX: number = 960;
   private strollY: number = 540;
 
+  // Off-screen coordinates (beyond right display edge)
+  private offscreenX: number = 1920;
+
+  private currentWindowX: number = 0;
+  private currentWindowY: number = 0;
+
   private isWalking: boolean = false;
   private isPinned: boolean = false;
+  private isOffScreen: boolean = false;
+  private allowOffscreenWalking: boolean = false;
   private currentWalkInterval: any = null;
   private settleTimer: any = null;
   private stateChangeCallback: MovementControllerOptions['onStateChange'];
@@ -43,6 +51,10 @@ export class DesktopMovementController {
   // Physics Engine instance
   private physicsEngine: DesktopPhysicsEngine;
   private physicsInterval: any = null;
+  // Delayed steps of a sequence (e.g. "wave, then walk off"); cancelled when a new movement starts
+  private pendingTimers = new Set<ReturnType<typeof setTimeout>>();
+  private walkFacing: number = 0;
+  private unsubscribeEdgeBump?: () => void;
   private lastPhysicsTickTime: number = 0;
   private freeFallEnabled: boolean = true;
 
@@ -72,12 +84,33 @@ export class DesktopMovementController {
     }
   };
 
+  // A click (no drag) on Appu briefly shows a tap reaction; resume the walk pose if still walking
+  private onClickReleasedListener = () => {
+    if (!this.isWalking) return;
+    this.later(() => {
+      if (this.isWalking) this.stateChangeCallback('walk', 'curious', this.walkFacing);
+    }, 650);
+  };
+
+  private later(fn: () => void, ms: number) {
+    const id = setTimeout(() => {
+      this.pendingTimers.delete(id);
+      fn();
+    }, ms);
+    this.pendingTimers.add(id);
+  }
+
+  private cancelPending() {
+    this.pendingTimers.forEach((id) => clearTimeout(id));
+    this.pendingTimers.clear();
+  }
+
   private onDroppedListener = () => {
     this.stopWalking();
     this.stopPhysicsLoop();
     if (this.settleTimer) clearTimeout(this.settleTimer);
     this.currentState = 'RESTING';
-    this.stateChangeCallback('sit', 'sleepy', 0);
+    this.stateChangeCallback('idle', 'happy', 0);
     this.handleUserDropped();
   };
 
@@ -113,12 +146,13 @@ export class DesktopMovementController {
       window.addEventListener('appu-drag-start', this.onDragStartListener);
       window.addEventListener('appu-released-with-velocity', this.onReleasedListener);
       window.addEventListener('appu-dropped-by-user', this.onDroppedListener);
+      window.addEventListener('appu-click-released', this.onClickReleasedListener);
     }
 
     // Listen for physical screen edge collisions to prevent walking into walls
     if (window.desktopAPI?.onScreenEdgeBump) {
-      window.desktopAPI.onScreenEdgeBump((_data) => {
-        if (this.isWalking) {
+      this.unsubscribeEdgeBump = window.desktopAPI.onScreenEdgeBump((_data) => {
+        if (this.isWalking && !this.allowOffscreenWalking) {
           this.stopWalking();
         }
       });
@@ -154,6 +188,12 @@ export class DesktopMovementController {
     // Calculate Notification presentation spot (~260px inward from corner)
     this.strollX = Math.round(Math.max(this.workAreaX + 100, this.homeX - 260));
     this.strollY = this.homeY;
+
+    // Calculate Off-screen coordinates (beyond right display edge)
+    this.offscreenX = Math.round(this.workAreaX + this.screenWidth + 35);
+
+    this.currentWindowX = this.homeX;
+    this.currentWindowY = this.homeY;
 
     // Set screen bounds for Physics Engine
     const minX = Math.round(this.workAreaX - INSET_LEFT);
@@ -192,8 +232,32 @@ export class DesktopMovementController {
     return this.currentState;
   }
 
+  public getIsOffScreen(): boolean {
+    return this.isOffScreen;
+  }
+
+  public setIsOffScreen(val: boolean): void {
+    this.isOffScreen = val;
+  }
+
+  public getOffscreenX(): number {
+    return this.offscreenX;
+  }
+
+  public getStrollX(): number {
+    return this.strollX;
+  }
+
+  public getHomeX(): number {
+    return this.homeX;
+  }
+
+  public getHomeY(): number {
+    return this.homeY;
+  }
+
   /**
-   * Starts companion routine: Appu briefly greets, then rests peacefully in Home Corner.
+   * Starts companion routine: Appu briefly greets, then stands ready in Home Corner.
    */
   public async startCompanionRoutine() {
     await this.initScreen();
@@ -203,13 +267,13 @@ export class DesktopMovementController {
 
     this.settleTimer = setTimeout(() => {
       this.currentState = 'RESTING';
-      this.stateChangeCallback('sit', 'sleepy', 0);
+      this.stateChangeCallback('idle', 'happy', 0);
     }, 2400);
   }
 
   /**
    * When user drops Appu anywhere on the screen:
-   * Appu stays right at that position! He looks around curiously, then rests peacefully.
+   * Appu stays right at that position! He stands alert and happy.
    * Never walks down to the bottom corner or drops down.
    */
   public handleUserDropped() {
@@ -217,8 +281,8 @@ export class DesktopMovementController {
     if (this.settleTimer) clearTimeout(this.settleTimer);
 
     this.currentState = 'RESTING';
-    // Sit peacefully right where placed or landed
-    this.stateChangeCallback('sit', 'sleepy', 0);
+    // Stand alert and happy right where placed or landed
+    this.stateChangeCallback('idle', 'happy', 0);
   }
 
   /**
@@ -232,7 +296,7 @@ export class DesktopMovementController {
     // Wake up with happy expression
     this.stateChangeCallback('idle', 'happy', 0);
 
-    setTimeout(() => {
+    this.later(() => {
       this.walkTo(this.strollX, this.strollY, () => {
         this.currentState = 'PRESENTING_NOTIFICATION';
         // Face forward and wave
@@ -243,21 +307,109 @@ export class DesktopMovementController {
   }
 
   /**
-   * Called when notification is dismissed: waves goodbye and walks back to home corner.
+   * Smoothly walks Appu off the side of the screen.
    */
-  public dismissAndReturnHome() {
+  public async walkOffScreen(onDone?: () => void) {
+    this.stopWalking();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    await this.initScreen();
+
+    // Wave goodbye briefly, then walk off screen to the side
+    this.stateChangeCallback('wave', 'happy', 0);
+
+    this.later(() => {
+      this.currentState = 'RETURNING_HOME';
+      this.allowOffscreenWalking = true;
+      this.walkTo(
+        this.offscreenX,
+        this.homeY,
+        () => {
+          this.currentState = 'RESTING';
+          this.isOffScreen = true;
+          this.allowOffscreenWalking = false;
+          this.stateChangeCallback('idle', 'neutral', 0);
+          if (onDone) onDone();
+        },
+        true
+      );
+    }, 800);
+  }
+
+  /**
+   * Walks Appu onto the screen from the side (e.g. for reminders or summoning).
+   */
+  public async walkOnScreen(targetX?: number, onDone?: () => void) {
+    this.stopWalking();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    await this.initScreen();
+
+    const destX = targetX ?? this.strollX;
+
+    // Immediately position window offscreen to the right
+    if (window.desktopAPI?.setWindowPosition) {
+      window.desktopAPI.setWindowPosition(this.offscreenX, this.homeY);
+      this.currentWindowX = this.offscreenX;
+      this.currentWindowY = this.homeY;
+    }
+
+    this.isOffScreen = false;
+    this.allowOffscreenWalking = true;
+    this.currentState = 'STROLLING_TO_NOTIFY';
+
+    // Face left towards the screen and start walking
+    this.stateChangeCallback('walk', 'curious', -Math.PI / 2);
+
+    this.later(() => {
+      this.walkTo(
+        destX,
+        this.homeY,
+        () => {
+          this.isOffScreen = false;
+          this.allowOffscreenWalking = false;
+          this.currentState = 'PRESENTING_NOTIFICATION';
+          this.stateChangeCallback('wave', 'happy', 0);
+          this.later(() => {
+            this.stateChangeCallback('idle', 'happy', 0);
+          }, 2000);
+          if (onDone) onDone();
+        },
+        true
+      );
+    }, 60);
+  }
+
+  /**
+   * Called when notification is acknowledged (OK) or snoozed:
+   * Reaction:
+   *  - 'happy' (OK clicked): Appu celebrates, then walks off the screen.
+   *  - 'sad' (Snooze clicked): Appu looks sad/cries, then walks off the screen.
+   * After the reaction, Appu always smoothly walks off the screen to the side!
+   */
+  public dismissAndReturnHome(reaction: 'happy' | 'sad' = 'happy', onDone?: () => void) {
     if (this.settleTimer) clearTimeout(this.settleTimer);
     this.stopWalking();
 
-    // Wave goodbye
-    this.stateChangeCallback('wave', 'happy', 0);
+    if (reaction === 'happy') {
+      this.stateChangeCallback('cheer', 'happy', 0);
+    } else {
+      this.stateChangeCallback('sad', 'sad', 0);
+    }
 
-    setTimeout(() => {
+    this.later(() => {
       this.currentState = 'RETURNING_HOME';
-      this.walkTo(this.homeX, this.homeY, () => {
-        this.currentState = 'RESTING';
-        this.stateChangeCallback('sit', 'sleepy', 0);
-      });
+      this.allowOffscreenWalking = true;
+      this.walkTo(
+        this.offscreenX,
+        this.homeY,
+        () => {
+          this.currentState = 'RESTING';
+          this.isOffScreen = true;
+          this.allowOffscreenWalking = false;
+          this.stateChangeCallback('idle', 'neutral', 0);
+          if (onDone) onDone();
+        },
+        true
+      );
     }, 1200);
   }
 
@@ -323,7 +475,7 @@ export class DesktopMovementController {
 
     this.walkTo(targetX, currentY, () => {
       this.stateChangeCallback('wave', 'happy', 0);
-      setTimeout(() => {
+      this.later(() => {
         this.stateChangeCallback('idle', 'happy', 0);
         if (onDone) onDone();
       }, 1200);
@@ -340,8 +492,8 @@ export class DesktopMovementController {
     // Wave goodbye
     this.stateChangeCallback('wave', 'happy', 0);
 
-    setTimeout(() => {
-      this.stateChangeCallback('sit', 'sleepy', 0);
+    this.later(() => {
+      this.stateChangeCallback('idle', 'happy', 0);
       if (onDone) onDone();
     }, 1200);
   }
@@ -354,7 +506,7 @@ export class DesktopMovementController {
     if (this.settleTimer) clearTimeout(this.settleTimer);
 
     this.stateChangeCallback('wave', 'happy', 0);
-    setTimeout(() => {
+    this.later(() => {
       this.stateChangeCallback('idle', 'happy', 0);
       if (onDone) onDone();
     }, 1800);
@@ -368,7 +520,7 @@ export class DesktopMovementController {
     if (this.settleTimer) clearTimeout(this.settleTimer);
     this.walkTo(this.homeX, this.homeY, () => {
       this.currentState = 'RESTING';
-      this.stateChangeCallback('sit', 'sleepy', 0);
+      this.stateChangeCallback('idle', 'happy', 0);
     });
   }
 
@@ -376,19 +528,29 @@ export class DesktopMovementController {
    * Smoothly walks the window to target coordinates (targetX, targetY).
    * ZERO React re-renders in the 60fps loop.
    */
-  public async walkTo(targetX: number, targetY: number, onDone: () => void) {
+  public async walkTo(
+    targetX: number,
+    targetY: number,
+    onDone: () => void,
+    allowOffscreen: boolean = false,
+    customSpeed?: number
+  ) {
     this.stopWalking();
     if (this.settleTimer) clearTimeout(this.settleTimer);
     this.isWalking = true;
+    this.allowOffscreenWalking = allowOffscreen;
+    const effectiveSpeed = customSpeed ?? this.speed;
 
-    let currentX = targetX;
-    let currentY = targetY;
+    let currentX = this.currentWindowX || targetX;
+    let currentY = this.currentWindowY || targetY;
 
     if (window.desktopAPI?.getWindowPosition) {
       try {
         const pos = await window.desktopAPI.getWindowPosition();
         currentX = pos.x;
         currentY = pos.y;
+        this.currentWindowX = pos.x;
+        this.currentWindowY = pos.y;
       } catch (e) {}
     }
 
@@ -407,6 +569,7 @@ export class DesktopMovementController {
 
     // Set walking animation and orientation ONCE at start
     let currentFacingAngle = dx >= 0 ? Math.PI / 2 : -Math.PI / 2;
+    this.walkFacing = currentFacingAngle;
     this.stateChangeCallback('walk', 'curious', currentFacingAngle);
 
     const stepInterval = 16;
@@ -426,7 +589,7 @@ export class DesktopMovementController {
       if (dist <= 6) {
         this.stopWalking();
         // Face forward when arriving
-        this.stateChangeCallback('idle', 'happy', 0);
+        this.stateChangeCallback('wave', 'happy', 0);
         onDone();
         return;
       }
@@ -435,16 +598,19 @@ export class DesktopMovementController {
       const targetFacing = curDx >= 0 ? Math.PI / 2 : -Math.PI / 2;
       if (targetFacing !== currentFacingAngle) {
         currentFacingAngle = targetFacing;
+        this.walkFacing = targetFacing;
         this.stateChangeCallback('walk', 'curious', currentFacingAngle);
       }
 
-      const stepDist = (this.speed * (stepInterval / 1000));
+      const stepDist = (effectiveSpeed * (stepInterval / 1000));
       const stepFraction = Math.min(1.0, stepDist / dist);
       const stepX = curDx * stepFraction;
       const stepY = curDy * stepFraction;
 
       currentX += stepX;
       currentY += stepY;
+      this.currentWindowX = currentX;
+      this.currentWindowY = currentY;
 
       accumulatedX += stepX;
       accumulatedY += stepY;
@@ -462,13 +628,15 @@ export class DesktopMovementController {
       }
 
       if ((sendX !== 0 || sendY !== 0) && window.desktopAPI?.moveWindowBy) {
-        window.desktopAPI.moveWindowBy(sendX, sendY);
+        window.desktopAPI.moveWindowBy(sendX, sendY, allowOffscreen);
       }
     }, stepInterval);
   }
 
   public stopWalking() {
+    this.cancelPending();
     this.isWalking = false;
+    this.allowOffscreenWalking = false;
     if (this.currentWalkInterval) {
       clearInterval(this.currentWalkInterval);
       this.currentWalkInterval = null;
@@ -567,12 +735,14 @@ export class DesktopMovementController {
 
   public destroy() {
     this.stopWalking();
+    this.unsubscribeEdgeBump?.();
     this.stopPhysicsLoop();
     if (this.settleTimer) clearTimeout(this.settleTimer);
     if (typeof window !== 'undefined') {
       window.removeEventListener('appu-drag-start', this.onDragStartListener);
       window.removeEventListener('appu-released-with-velocity', this.onReleasedListener);
       window.removeEventListener('appu-dropped-by-user', this.onDroppedListener);
+      window.removeEventListener('appu-click-released', this.onClickReleasedListener);
     }
   }
 }

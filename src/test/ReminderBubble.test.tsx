@@ -53,47 +53,45 @@ describe('ReminderBubble Component & Companion Voice', () => {
   });
 
   describe('ReminderBubble Rendering & Interactions', () => {
-    it('renders companion header, title, badge, and dialogue', () => {
+    it('renders pill with alarm icon, Reminder label, title, and action buttons', () => {
       render(
         <ReminderBubble
           title="Come back after 1 min"
           intervalMinutes={1}
           type="interval"
-          actionText="Done"
         />
       );
 
-      expect(screen.getByText('Appu')).toBeInTheDocument();
-      expect(screen.getByText('Companion')).toBeInTheDocument();
+      expect(screen.getByText('Reminder')).toBeInTheDocument();
       expect(screen.getByText('Come back after 1 min')).toBeInTheDocument();
-      expect(screen.getByText('1m timer')).toBeInTheDocument();
+      expect(screen.getByTestId('reminder-speech-bubble')).toHaveClass('minimal-reminder-pill');
+      // Action buttons
       expect(screen.getByTestId('reminder-done-btn')).toBeInTheDocument();
       expect(screen.getByTestId('reminder-snooze-btn')).toBeInTheDocument();
+      expect(screen.getByText('Snooze (5m)')).toBeInTheDocument();
+      expect(screen.getByText('OK')).toBeInTheDocument();
     });
 
-    it('handles Done action and enters celebrating state', () => {
+    it('handles OK button click', () => {
       const onAction = vi.fn();
       render(
         <ReminderBubble
           title="Stretch Break"
-          intervalMinutes={30}
           onAction={onAction}
         />
       );
 
-      const doneBtn = screen.getByTestId('reminder-done-btn');
-      fireEvent.click(doneBtn);
+      const okBtn = screen.getByTestId('reminder-done-btn');
+      fireEvent.click(okBtn);
 
       expect(onAction).toHaveBeenCalledTimes(1);
-      expect(screen.getByText('Great Job!')).toBeInTheDocument();
     });
 
-    it('handles Snooze action with 5-minute interval', () => {
+    it('handles Snooze button click with 5 minutes', () => {
       const onSnooze = vi.fn();
       render(
         <ReminderBubble
-          id="rem_123"
-          title="Call Mum"
+          title="Stretch Break"
           onSnooze={onSnooze}
         />
       );
@@ -102,22 +100,57 @@ describe('ReminderBubble Component & Companion Voice', () => {
       fireEvent.click(snoozeBtn);
 
       expect(onSnooze).toHaveBeenCalledWith(5);
-      expect(screen.getByText('Snoozed 5m')).toBeInTheDocument();
     });
 
-    it('handles Dismiss action via X button', () => {
-      const onDismiss = vi.fn();
+    it('handles dismiss when clicked anywhere on the bubble', () => {
+      const onAction = vi.fn();
       render(
         <ReminderBubble
-          title="Stand Up"
-          onDismiss={onDismiss}
+          title="Stretch Break"
+          onAction={onAction}
         />
       );
 
-      const closeBtn = screen.getByLabelText('Dismiss reminder');
-      fireEvent.click(closeBtn);
+      const bubble = screen.getByTestId('reminder-speech-bubble');
+      fireEvent.click(bubble);
 
-      expect(onDismiss).toHaveBeenCalledTimes(1);
+      expect(onAction).toHaveBeenCalledTimes(1);
+    });
+
+    it('auto-dismisses after autoDismissSeconds elapses when positive', () => {
+      vi.useFakeTimers();
+      const onAction = vi.fn();
+
+      render(
+        <ReminderBubble
+          title="Stand Up"
+          autoDismissSeconds={3}
+          onAction={onAction}
+        />
+      );
+
+      expect(onAction).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(3100);
+
+      expect(onAction).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it('does not auto-dismiss by default or when autoDismissSeconds is 0 (stays until OK or Snooze)', () => {
+      vi.useFakeTimers();
+      const onAction = vi.fn();
+
+      render(
+        <ReminderBubble
+          title="Stay On Screen Meeting"
+          onAction={onAction}
+        />
+      );
+
+      vi.advanceTimersByTime(60000); // 1 minute elapses
+      expect(onAction).not.toHaveBeenCalled();
+      vi.useRealTimers();
     });
 
     it('points speech tail towards Appu based on side prop', () => {

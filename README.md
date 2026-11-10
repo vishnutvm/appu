@@ -29,6 +29,11 @@ An independent, browser-based, full-body 3D robotic companion and character stud
   - **Studio Lighting**: Soft Studio, Dramatic Key, Warm Ambient, Cyber Rim.
   - **Advanced & Desktop**: Playback speed, Transparent background mode, Contact ground shadow toggle.
 
+### 4. AI Assistant (Desktop)
+- Chat with Appu (⌘K or the menu). Powered by Google Gemini through tools for reminders, memories, and app status.
+- Add your Gemini API key and choose the model in **Preferences → AI Brain & Intelligence**. The key is stored with the OS keychain (`safeStorage`); `GEMINI_API_KEY` in `.env` is used as a fallback.
+- Reminders support one-time, daily, weekly, and every-N-minutes/hours schedules; deleting reminders or memories through chat always asks for confirmation.
+
 ## Running the Application
 
 ```bash
@@ -52,7 +57,7 @@ Appu provides production packaging and automated update flows:
 ### Building & Packaging:
 
 ```bash
-# Run unit and integration tests (82 tests)
+# Run unit and integration tests (168 tests)
 npm test
 
 # Build frontend and electron
