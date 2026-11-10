@@ -29,6 +29,44 @@ describe('StorageService & Data Persistence', () => {
     expect(settings.releaseChannel).toBe('stable');
     expect(settings.autoCheckUpdates).toBe(true);
     expect(settings.isPinned).toBe(false);
+    expect(settings.assistantName).toBe('Appu');
+  });
+
+  it('migrates legacy default companion name Novi3 to Appu and persists', () => {
+    // Simulate an older install that still has the pre-Appu product default.
+    fs.writeFileSync(
+      path.join(tempDir, 'settings.json'),
+      JSON.stringify({
+        userName: 'Vishnu',
+        assistantName: 'Novi3',
+        isPinned: true,
+        autonomousRoaming: true,
+        freeFallEnabled: true,
+        edgeSoundEnabled: true,
+        autoCheckUpdates: true,
+        releaseChannel: 'stable',
+        volume: 0.8,
+      }),
+      'utf8'
+    );
+
+    const migrated = new StorageService(tempDir);
+    expect(migrated.getSettings().assistantName).toBe('Appu');
+    expect(migrated.getSettings().isPinned).toBe(true);
+
+    const raw = JSON.parse(fs.readFileSync(path.join(tempDir, 'settings.json'), 'utf8'));
+    expect(raw.assistantName).toBe('Appu');
+  });
+
+  it('preserves intentional companion renames and coerces empty names to Appu', () => {
+    storage.updateSettings({ assistantName: 'Buddy' });
+    expect(storage.getSettings().assistantName).toBe('Buddy');
+
+    storage.updateSettings({ assistantName: '   ' });
+    expect(storage.getSettings().assistantName).toBe('Appu');
+
+    storage.updateSettings({ assistantName: 'novi3' });
+    expect(storage.getSettings().assistantName).toBe('Appu');
   });
 
   it('updates settings and persists to disk atomically', () => {

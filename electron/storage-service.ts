@@ -30,6 +30,32 @@ const DEFAULT_SETTINGS: StorageSettings = {
   volume: 0.8,
 };
 
+/** Legacy product defaults that should become Appu; keep intentional user renames. */
+const LEGACY_DEFAULT_ASSISTANT_NAMES = new Set(['novi3']);
+
+function normalizeAssistantName(name: unknown): string {
+  if (typeof name !== 'string') return DEFAULT_SETTINGS.assistantName!;
+  const trimmed = name.trim();
+  if (!trimmed) return DEFAULT_SETTINGS.assistantName!;
+  if (LEGACY_DEFAULT_ASSISTANT_NAMES.has(trimmed.toLowerCase())) {
+    return DEFAULT_SETTINGS.assistantName!;
+  }
+  return trimmed;
+}
+
+function applySettingsMigrations(
+  settings: StorageSettings
+): { settings: StorageSettings; changed: boolean } {
+  const migratedName = normalizeAssistantName(settings.assistantName);
+  if (migratedName === settings.assistantName) {
+    return { settings, changed: false };
+  }
+  return {
+    settings: { ...settings, assistantName: migratedName },
+    changed: true,
+  };
+}
+
 export class StorageService {
   private static instance: StorageService | null = null;
   private userDataPath: string;
@@ -83,7 +109,12 @@ export class StorageService {
       try {
         const raw = fs.readFileSync(this.settingsPath, 'utf8');
         const parsed = JSON.parse(raw);
-        this.cachedSettings = { ...DEFAULT_SETTINGS, ...parsed };
+        const merged = { ...DEFAULT_SETTINGS, ...parsed };
+        const { settings, changed } = applySettingsMigrations(merged);
+        this.cachedSettings = settings;
+        if (changed) {
+          this.writeSettingsFile(settings);
+        }
       } catch (err) {
         console.error('Failed to parse settings.json, recreating with defaults:', err);
         this.cachedSettings = { ...DEFAULT_SETTINGS };
@@ -135,7 +166,12 @@ export class StorageService {
       try {
         if (fs.existsSync(this.settingsPath)) {
           const raw = fs.readFileSync(this.settingsPath, 'utf8');
-          this.cachedSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+          const merged = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+          const { settings, changed } = applySettingsMigrations(merged);
+          this.cachedSettings = settings;
+          if (changed) {
+            this.writeSettingsFile(settings);
+          }
         } else {
           this.cachedSettings = { ...DEFAULT_SETTINGS };
         }
@@ -152,6 +188,9 @@ export class StorageService {
       ...current,
       ...updates,
     };
+    if (Object.prototype.hasOwnProperty.call(updates, 'assistantName')) {
+      updated.assistantName = normalizeAssistantName(updates.assistantName);
+    }
     this.cachedSettings = updated;
     this.writeSettingsFile(updated);
     return { ...updated };

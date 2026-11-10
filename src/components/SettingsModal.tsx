@@ -337,14 +337,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="settings-field">
               <div className="row-text">
                 <span className="row-main">Companion Name</span>
-                <span className="row-sub">Character persona (e.g. Novi, Appu)</span>
+                <span className="row-sub">Character persona shown in menus (default Appu)</span>
               </div>
               <input
                 type="text"
                 className="settings-text-input"
                 value={assistantName}
                 maxLength={50}
-                placeholder="e.g. Novi"
+                placeholder="Appu"
                 onChange={(e) => setAssistantName(e.target.value)}
                 onBlur={() => handleSaveNames(userName, assistantName)}
                 onKeyDown={(e) => {
