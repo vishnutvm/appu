@@ -8,6 +8,7 @@ import { RemindersModal } from '../components/RemindersModal';
 describe('Reminders System', () => {
   beforeEach(() => {
     localStorage.clear();
+    RemindersManager.resetInstanceForTests();
   });
 
   describe('RemindersManager', () => {

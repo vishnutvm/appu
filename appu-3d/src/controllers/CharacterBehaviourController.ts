@@ -224,11 +224,21 @@ export class CharacterBehaviourController {
     if (this.isSleeping()) {
       // Tapping/clicking Appu while sleeping wakes him up!
       this.wakeUp();
-    } else if (this.isGroundPose()) {
-      this.setState('surprised', 'happy', 0.4);
-    } else {
-      this.setState('surprised', 'happy', 0.6);
+      return;
     }
+
+    // Tapping while holding a pose / action must not freeze the pose by swapping
+    // animation state while leaving currentActionId set (looping poses would stick).
+    if (this.currentActionId) {
+      if (this.emotionCtrl) {
+        this.emotionCtrl.triggerNamedEmotion('happy', 0.45);
+      } else {
+        this.callbacks.onEmotionChange('happy');
+      }
+      return;
+    }
+
+    this.setState('surprised', 'happy', 0.6);
   }
 
   // --- Main Update Loop ---

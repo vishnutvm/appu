@@ -16,7 +16,7 @@ import { AppuActionId } from './types/actions';
 import { INITIAL_CONTROLS, CharacterControlState, AppuAnimationState, AppuEmotion } from './types/character';
 import { CompanionStateLabel } from './types/menu';
 import { UpdaterStatus } from './types/updater';
-import { Sparkles, Minus, Square, X, Bell, Menu as MenuIcon, Play } from 'lucide-react';
+import { Sparkles, Bell, Menu as MenuIcon, Play } from 'lucide-react';
 import { MenuPlacement } from './types/desktop';
 import './types/desktop';
 import './App.css';
@@ -649,35 +649,33 @@ export const App: React.FC = () => {
             <span>Actions & Poses</span>
           </button>
 
-          {/* Developer-only Reminder simulation button */}
-          <button
-            className="companion-mode-launcher-btn"
-            onClick={() => {
-              setReminder(
-                reminder
-                  ? null
-                  : {
-                      title: 'Reminder',
-                      message: 'Team meeting in 5 minutes. Shall I open the meeting link for you?',
-                      actionText: 'Join Meeting',
-                    }
-              );
-            }}
-            title="Toggle Reminder Bubble Simulation (Dev Only)"
-          >
-            <Bell size={13} className="text-gold" />
-            <span>Test Reminder</span>
-          </button>
+          {/* Dev-only reminder simulation — hidden in production / packaged builds */}
+          {import.meta.env.DEV && (
+            <button
+              className="companion-mode-launcher-btn"
+              onClick={() => {
+                setReminder(
+                  reminder
+                    ? null
+                    : {
+                        title: 'Reminder',
+                        message: 'Team meeting in 5 minutes. Shall I open the meeting link for you?',
+                        actionText: 'Join Meeting',
+                      }
+                );
+              }}
+              title="Toggle Reminder Bubble Simulation (Dev Only)"
+            >
+              <Bell size={13} className="text-gold" />
+              <span>Test Reminder</span>
+            </button>
+          )}
 
-          <button className="window-ctrl-btn" title="Minimize">
-            <Minus size={13} />
-          </button>
-          <button className="window-ctrl-btn" title="Maximize">
-            <Square size={11} />
-          </button>
-          <button className="window-ctrl-btn close" title="Close">
-            <X size={13} />
-          </button>
+          {/*
+            Studio chrome is browser-only (Electron always loads ?mode=companion).
+            Decorative Minimize / Maximize / Close controls are hidden here — they
+            have no BrowserWindow to drive. Use companion tray Quit / hide instead.
+          */}
         </div>
       </header>
 
@@ -728,7 +726,12 @@ export const App: React.FC = () => {
                 setShowSettings(true);
               }}
               onQuitAppu={() => {
-                alert('In desktop companion mode, this terminates the native application.');
+                // Prefer native quit when studio somehow runs under Electron preload.
+                if (window.desktopAPI?.quitApp) {
+                  window.desktopAPI.quitApp();
+                  return;
+                }
+                // Browser studio has no app process to terminate.
               }}
               onOpenActionsGallery={() => {
                 setIsActionsPanelOpen((prev) => !prev);

@@ -1,15 +1,22 @@
 import { AppuReminder, ReminderRecurrenceType } from '../types/reminders';
+import {
+  BackendReminderService,
+  PastReminderTimeError,
+  REMINDERS_STORAGE_KEY,
+} from './BackendReminderService';
 
-const STORAGE_KEY = 'appu_companion_reminders';
+export { PastReminderTimeError };
 
 export class RemindersManager {
   private static instance: RemindersManager | null = null;
+  private backend: BackendReminderService;
   private reminders: AppuReminder[] = [];
   private listeners: Set<(reminders: AppuReminder[]) => void> = new Set();
   private triggerCallback: ((reminder: AppuReminder) => void) | null = null;
-  private timerId: any = null;
+  private timerId: ReturnType<typeof setInterval> | null = null;
 
-  private constructor() {
+  private constructor(backend?: BackendReminderService) {
+    this.backend = backend ?? new BackendReminderService();
     this.load();
     this.startScheduler();
   }
@@ -18,6 +25,15 @@ export class RemindersManager {
     if (!RemindersManager.instance) {
       RemindersManager.instance = new RemindersManager();
     }
+    return RemindersManager.instance;
+  }
+
+  /** Test helper — resets the singleton against a fresh storage-backed backend. */
+  public static resetInstanceForTests(backend?: BackendReminderService): RemindersManager {
+    if (RemindersManager.instance?.timerId) {
+      clearInterval(RemindersManager.instance.timerId);
+    }
+    RemindersManager.instance = new RemindersManager(backend);
     return RemindersManager.instance;
   }
 
@@ -37,6 +53,13 @@ export class RemindersManager {
     return [...this.reminders];
   }
 
+  /** Re-read storage through the backend; deleted reminders stay gone. */
+  public syncFromBackend(): AppuReminder[] {
+    this.reminders = this.backend.sync();
+    this.notify();
+    return this.getReminders();
+  }
+
   public addReminder(params: {
     title: string;
     type: ReminderRecurrenceType;
@@ -44,38 +67,24 @@ export class RemindersManager {
     specificTime?: string;
     specificDate?: string;
   }): AppuReminder {
-    const now = Date.now();
-    const nextTriggerAt = this.calculateNextTrigger(params, now);
-
-    const newReminder: AppuReminder = {
-      id: `rem_${now}_${Math.random().toString(36).substring(2, 7)}`,
-      title: params.title.trim() || 'Reminder',
-      type: params.type,
-      intervalMinutes: params.intervalMinutes,
-      specificTime: params.specificTime,
-      specificDate: params.specificDate,
-      nextTriggerAt,
-      enabled: true,
-      createdAt: now,
-    };
-
-    this.reminders.unshift(newReminder);
-    this.save();
+    const newReminder = this.backend.createReminder(params);
+    this.reminders = this.backend.getReminders();
+    this.notify();
     return newReminder;
   }
 
   public removeReminder(id: string) {
-    this.reminders = this.reminders.filter((r) => r.id !== id);
-    this.save();
+    this.backend.deleteReminder(id);
+    this.reminders = this.backend.getReminders();
+    this.notify();
   }
 
   public toggleReminder(id: string, enabled?: boolean) {
-    const item = this.reminders.find((r) => r.id !== id);
     this.reminders = this.reminders.map((r) => {
       if (r.id === id) {
         const nextEnabled = enabled !== undefined ? enabled : !r.enabled;
         const nextTriggerAt = nextEnabled
-          ? this.calculateNextTrigger(r, Date.now())
+          ? this.backend.calculateNextTrigger(r, Date.now())
           : r.nextTriggerAt;
         return { ...r, enabled: nextEnabled, nextTriggerAt };
       }
@@ -109,21 +118,21 @@ export class RemindersManager {
             nextTriggerAt: now + r.intervalMinutes * 60 * 1000,
           };
         } else if (r.type === 'specific_time' && r.specificTime) {
-          // If repeating daily without a specific date, reschedule for tomorrow
           if (!r.specificDate) {
             return {
               ...r,
               lastTriggeredAt: now,
-              nextTriggerAt: this.calculateNextDailyTime(r.specificTime, now + 60000),
-            };
-          } else {
-            // One-off specific date/time, disable once done
-            return {
-              ...r,
-              lastTriggeredAt: now,
-              enabled: false,
+              nextTriggerAt: this.backend.calculateNextTrigger(
+                { type: 'specific_time', specificTime: r.specificTime },
+                now + 60000
+              ),
             };
           }
+          return {
+            ...r,
+            lastTriggeredAt: now,
+            enabled: false,
+          };
         }
       }
       return r;
@@ -140,42 +149,7 @@ export class RemindersManager {
     },
     fromTime: number = Date.now()
   ): number {
-    if (params.type === 'interval' && params.intervalMinutes) {
-      return fromTime + Math.max(1, params.intervalMinutes) * 60 * 1000;
-    }
-
-    if (params.type === 'specific_time' && params.specificTime) {
-      if (params.specificDate) {
-        const [year, month, day] = params.specificDate.split('-').map(Number);
-        const [hour, minute] = params.specificTime.split(':').map(Number);
-        const target = new Date(year, month - 1, day, hour, minute, 0, 0);
-        return target.getTime();
-      } else {
-        return this.calculateNextDailyTime(params.specificTime, fromTime);
-      }
-    }
-
-    return fromTime + 30 * 60 * 1000;
-  }
-
-  private calculateNextDailyTime(timeStr: string, fromTime: number): number {
-    const [hour, minute] = timeStr.split(':').map(Number);
-    const now = new Date(fromTime);
-    const candidate = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      hour,
-      minute,
-      0,
-      0
-    );
-
-    // If candidate time has already passed today, schedule for tomorrow
-    if (candidate.getTime() <= fromTime) {
-      candidate.setDate(candidate.getDate() + 1);
-    }
-    return candidate.getTime();
+    return this.backend.calculateNextTrigger(params, fromTime);
   }
 
   private startScheduler() {
@@ -194,7 +168,7 @@ export class RemindersManager {
           this.triggerCallback(r);
         }
         this.markCompletedOrReschedule(r.id);
-        break; // Trigger one at a time to prevent overlapping speech bubbles
+        break;
       }
     }
   }
@@ -206,7 +180,6 @@ export class RemindersManager {
       const ctx = new AudioCtx();
       const now = ctx.currentTime;
 
-      // Two-tone cheerful glass bell chime (G5 -> C6)
       const osc1 = ctx.createOscillator();
       const osc2 = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -214,8 +187,8 @@ export class RemindersManager {
       osc1.type = 'sine';
       osc2.type = 'triangle';
 
-      osc1.frequency.setValueAtTime(783.99, now); // G5
-      osc1.frequency.setValueAtTime(1046.5, now + 0.15); // C6
+      osc1.frequency.setValueAtTime(783.99, now);
+      osc1.frequency.setValueAtTime(1046.5, now + 0.15);
 
       osc2.frequency.setValueAtTime(392.0, now);
       osc2.frequency.setValueAtTime(523.25, now + 0.15);
@@ -239,51 +212,45 @@ export class RemindersManager {
   }
 
   private save() {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.reminders));
-      }
-    } catch (e) {
-      console.warn('Failed to save reminders:', e);
-    }
+    this.backend.replaceAll(this.reminders);
     this.notify();
   }
 
   private load() {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          this.reminders = JSON.parse(raw);
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to load reminders:', e);
-    }
+    this.reminders = this.backend.getReminders();
+    if (this.reminders.length === 0) {
+      // Seed defaults only when storage has never held reminders.
+      const hasStored =
+        typeof window !== 'undefined' &&
+        window.localStorage &&
+        window.localStorage.getItem(REMINDERS_STORAGE_KEY) !== null;
 
-    // Default seeded presets on first launch
-    const now = Date.now();
-    this.reminders = [
-      {
-        id: 'preset_water',
-        title: 'Drink Water',
-        type: 'interval',
-        intervalMinutes: 45,
-        nextTriggerAt: now + 45 * 60 * 1000,
-        enabled: true,
-        createdAt: now,
-      },
-      {
-        id: 'preset_eye_rest',
-        title: 'Rest Eyes (20-20-20 rule)',
-        type: 'interval',
-        intervalMinutes: 30,
-        nextTriggerAt: now + 30 * 60 * 1000,
-        enabled: true,
-        createdAt: now,
-      },
-    ];
+      if (!hasStored) {
+        const now = Date.now();
+        const seeded: AppuReminder[] = [
+          {
+            id: 'preset_water',
+            title: 'Drink Water',
+            type: 'interval',
+            intervalMinutes: 45,
+            nextTriggerAt: now + 45 * 60 * 1000,
+            enabled: true,
+            createdAt: now,
+          },
+          {
+            id: 'preset_eye_rest',
+            title: 'Rest Eyes (20-20-20 rule)',
+            type: 'interval',
+            intervalMinutes: 30,
+            nextTriggerAt: now + 30 * 60 * 1000,
+            enabled: true,
+            createdAt: now,
+          },
+        ];
+        this.reminders = seeded;
+        this.backend.replaceAll(seeded);
+      }
+    }
   }
 
   private notify() {

@@ -21,6 +21,7 @@ An independent, browser-based, full-body 3D robotic companion and character stud
 
 ### 3. Studio Interface
 - Clean, minimal application header with active state pill (`IDLE • HAPPY`).
+- Browser-only studio chrome: Electron always launches companion mode (`?mode=companion`), so decorative Minimize / Maximize / Close controls are omitted from the studio header. Quit in the studio interaction menu calls `desktopAPI.quitApp()` when running under Electron preload; in a plain browser tab there is no app process to terminate.
 - Slide-over studio customization drawer that can be opened and closed to maximize 3D focus.
 - Categorized controls:
   - **Animations**: Idle, Wave, Walk, Breathing toggle, Blinking toggle, Pause/Resume.
@@ -53,7 +54,7 @@ Appu provides production packaging and automated update flows:
 ### Building & Packaging:
 
 ```bash
-# Run unit and integration tests (82 tests)
+# Run unit and integration tests (92 tests)
 npm test
 
 # Build frontend and electron

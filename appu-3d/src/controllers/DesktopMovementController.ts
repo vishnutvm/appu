@@ -31,8 +31,9 @@ export class DesktopMovementController {
 
   private isWalking: boolean = false;
   private isPinned: boolean = false;
-  private currentWalkInterval: any = null;
-  private settleTimer: any = null;
+  private currentWalkInterval: ReturnType<typeof setInterval> | null = null;
+  private settleTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingTimers: Set<ReturnType<typeof setTimeout>> = new Set();
   private stateChangeCallback: MovementControllerOptions['onStateChange'];
 
   constructor(options: MovementControllerOptions) {
@@ -43,7 +44,7 @@ export class DesktopMovementController {
     if (typeof window !== 'undefined') {
       window.addEventListener('appu-drag-start', () => {
         this.stopWalking();
-        if (this.settleTimer) clearTimeout(this.settleTimer);
+        this.clearAllTimers();
         this.currentState = 'BEING_DRAGGED';
       });
 
@@ -100,6 +101,28 @@ export class DesktopMovementController {
     this.isPinned = pinned;
   }
 
+  private scheduleTimeout(fn: () => void, ms: number): ReturnType<typeof setTimeout> {
+    const id = setTimeout(() => {
+      this.pendingTimers.delete(id);
+      if (this.settleTimer === id) this.settleTimer = null;
+      fn();
+    }, ms);
+    this.pendingTimers.add(id);
+    return id;
+  }
+
+  /** Cancels settle + any one-shot stroll/dismiss/appear timers. */
+  public clearAllTimers() {
+    if (this.settleTimer) {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = null;
+    }
+    for (const id of this.pendingTimers) {
+      clearTimeout(id);
+    }
+    this.pendingTimers.clear();
+  }
+
   /**
    * Starts companion routine: Appu briefly greets, then rests peacefully in Home Corner.
    */
@@ -109,7 +132,8 @@ export class DesktopMovementController {
     // Friendly initial greeting
     this.stateChangeCallback('wave', 'happy', 0);
 
-    this.settleTimer = setTimeout(() => {
+    this.clearAllTimers();
+    this.settleTimer = this.scheduleTimeout(() => {
       this.currentState = 'RESTING';
       this.stateChangeCallback('sit', 'sleepy', 0);
     }, 2400);
@@ -122,7 +146,7 @@ export class DesktopMovementController {
    */
   public handleUserDropped() {
     this.stopWalking();
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
 
     if (this.isPinned) {
       this.currentState = 'RESTING';
@@ -135,7 +159,7 @@ export class DesktopMovementController {
     this.stateChangeCallback('idle', 'curious', 0);
 
     // After 8 seconds of curiosity, walk back to Home Corner to clear the workspace
-    this.settleTimer = setTimeout(async () => {
+    this.settleTimer = this.scheduleTimeout(async () => {
       if (this.isPinned || this.isWalking) return;
 
       let currentX = 0;
@@ -161,14 +185,14 @@ export class DesktopMovementController {
    * Called when a reminder arrives: Appu wakes up, strolls into view, waves, and shows bubble.
    */
   public async triggerReminderStroll(onArrived: () => void) {
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
     this.stopWalking();
     this.currentState = 'STROLLING_TO_NOTIFY';
 
     // Wake up with happy expression
     this.stateChangeCallback('idle', 'happy', 0);
 
-    setTimeout(() => {
+    this.scheduleTimeout(() => {
       this.walkTo(this.strollX, this.strollY, () => {
         this.currentState = 'PRESENTING_NOTIFICATION';
         // Face forward and wave
@@ -182,13 +206,13 @@ export class DesktopMovementController {
    * Called when notification is dismissed: waves goodbye and walks back to home corner.
    */
   public dismissAndReturnHome() {
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
     this.stopWalking();
 
     // Wave goodbye
     this.stateChangeCallback('wave', 'happy', 0);
 
-    setTimeout(() => {
+    this.scheduleTimeout(() => {
       this.currentState = 'RETURNING_HOME';
       this.walkTo(this.homeX, this.homeY, () => {
         this.currentState = 'RESTING';
@@ -202,7 +226,7 @@ export class DesktopMovementController {
    */
   public async stickToEdge(onDone?: () => void) {
     this.stopWalking();
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
     this.isPinned = true;
 
     let currentX = 0;
@@ -240,7 +264,7 @@ export class DesktopMovementController {
    */
   public async unstick(onDone?: () => void) {
     this.stopWalking();
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
     this.isPinned = false;
 
     let currentX = 0;
@@ -259,7 +283,7 @@ export class DesktopMovementController {
 
     this.walkTo(targetX, currentY, () => {
       this.stateChangeCallback('wave', 'happy', 0);
-      setTimeout(() => {
+      this.scheduleTimeout(() => {
         this.stateChangeCallback('idle', 'happy', 0);
         if (onDone) onDone();
       }, 1200);
@@ -271,12 +295,12 @@ export class DesktopMovementController {
    */
   public async disappear(onDone?: () => void) {
     this.stopWalking();
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
 
     // Wave goodbye
     this.stateChangeCallback('wave', 'happy', 0);
 
-    setTimeout(() => {
+    this.scheduleTimeout(() => {
       this.stateChangeCallback('sit', 'sleepy', 0);
       if (onDone) onDone();
     }, 1200);
@@ -287,10 +311,10 @@ export class DesktopMovementController {
    */
   public async reappear(onDone?: () => void) {
     this.stopWalking();
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
 
     this.stateChangeCallback('wave', 'happy', 0);
-    setTimeout(() => {
+    this.scheduleTimeout(() => {
       this.stateChangeCallback('idle', 'happy', 0);
       if (onDone) onDone();
     }, 1800);
@@ -301,7 +325,7 @@ export class DesktopMovementController {
    */
   public walkToHomeCorner() {
     this.stopWalking();
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
     this.walkTo(this.homeX, this.homeY, () => {
       this.currentState = 'RESTING';
       this.stateChangeCallback('sit', 'sleepy', 0);
@@ -314,7 +338,7 @@ export class DesktopMovementController {
    */
   public async walkTo(targetX: number, targetY: number, onDone: () => void) {
     this.stopWalking();
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
     this.isWalking = true;
 
     let currentX = targetX;
@@ -351,7 +375,7 @@ export class DesktopMovementController {
 
     this.currentWalkInterval = setInterval(() => {
       if (!this.isWalking) {
-        clearInterval(this.currentWalkInterval);
+        if (this.currentWalkInterval) clearInterval(this.currentWalkInterval);
         return;
       }
 
@@ -413,6 +437,6 @@ export class DesktopMovementController {
 
   public destroy() {
     this.stopWalking();
-    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.clearAllTimers();
   }
 }

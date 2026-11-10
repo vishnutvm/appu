@@ -58,9 +58,17 @@ export class CharacterEmotionController {
     }
 
     this.currentEmotion = emotion;
+    this.onEmotionChange?.(this.currentEmotion);
+
+    // Zero / negative duration must not stick — settle back to baseline on the next update tick.
+    if (duration <= 0) {
+      this.currentPriority = priority;
+      this.durationRemaining = Number.EPSILON;
+      return true;
+    }
+
     this.currentPriority = priority;
     this.durationRemaining = duration;
-    this.onEmotionChange?.(this.currentEmotion);
     return true;
   }
 
