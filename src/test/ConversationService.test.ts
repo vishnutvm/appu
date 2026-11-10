@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { AppuDatabase } from '../../electron/database/database';
 import { ReminderRepository } from '../../electron/database/repositories/reminder-repository';
