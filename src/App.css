@@ -1,0 +1,963 @@
+:root {
+  --bg-deep: #050811;
+  --bg-darker: #02050b;
+  --panel-bg: rgba(9, 15, 27, 0.78);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --accent-gold: #f6c344;
+  --accent-cyan: #00d2ee;
+  --accent-cyan-soft: rgba(0, 210, 238, 0.15);
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: transparent;
+  color: var(--text-main);
+  font-family: var(--font-sans);
+}
+
+/* -------------------------------------------------------------
+   1. DESKTOP COMPANION MODE STYLING (Transparent, Frameless Overlay)
+-------------------------------------------------------------- */
+.appu-desktop-companion-viewport {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  background: transparent !important;
+  pointer-events: none;
+  overflow: hidden;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.appu-desktop-companion-viewport.appu-hidden .companion-character-hitbox {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(40px) scale(0.5);
+  filter: blur(6px);
+  transition: opacity 0.38s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.38s cubic-bezier(0.4, 0, 0.2, 1),
+              filter 0.35s ease;
+}
+
+.companion-character-hitbox {
+  width: 220px;
+  height: 300px;
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+  transform-origin: 50% 88%;
+  will-change: opacity, filter;
+  transition: opacity 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+              filter 0.35s ease;
+}
+
+/* Smooth spawn-in keyframe animation */
+.companion-character-hitbox.spawning-in {
+  animation: appu-smooth-spawn-in 0.52s cubic-bezier(0.175, 0.885, 0.32, 1.15) forwards;
+}
+
+/* Smooth spawn-out animation */
+.companion-character-hitbox.spawning-out {
+  transform: translateY(34px) scale(0.68) !important;
+  opacity: 0 !important;
+  filter: blur(4px) !important;
+  pointer-events: none !important;
+  transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              filter 0.32s ease !important;
+}
+
+/* Hidden state */
+.companion-character-hitbox.hidden-state {
+  transform: translateY(40px) scale(0.5) !important;
+  opacity: 0 !important;
+  filter: blur(6px) !important;
+  pointer-events: none !important;
+}
+
+@keyframes appu-smooth-spawn-in {
+  0% {
+    opacity: 0;
+    transform: translateY(36px) scale(0.6);
+    filter: blur(5px);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(-5px) scale(1.04);
+    filter: blur(0px);
+  }
+  85% {
+    transform: translateY(1.5px) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0px) scale(1.0);
+    filter: blur(0px);
+  }
+}
+
+/* Hitbox & Menu Anchor Positioning:
+   Permanently anchor based on menu placement (menu-h-left/right, menu-v-top/bottom)
+   so whether the window is compact (220x300) or expanded (540x380),
+   the 3D canvas position on the user's screen is 100% constant, eliminating
+   all jumping, flicker, and side ghost reflections. */
+
+/* Horizontal positioning */
+.appu-desktop-companion-viewport.menu-h-left .companion-character-hitbox {
+  left: auto;
+  right: 0;
+  width: 220px;
+}
+
+.appu-desktop-companion-viewport.menu-h-right .companion-character-hitbox {
+  left: 0;
+  right: auto;
+  width: 220px;
+}
+
+/* Vertical positioning */
+.appu-desktop-companion-viewport.menu-v-bottom .companion-character-hitbox {
+  top: auto;
+  bottom: 0;
+  height: 300px;
+}
+
+.appu-desktop-companion-viewport.menu-v-top .companion-character-hitbox {
+  top: 0;
+  bottom: auto;
+  height: 300px;
+}
+
+/* Menu anchor positions */
+.appu-desktop-companion-viewport.menu-h-right .companion-menu-anchor {
+  left: 168px;
+  right: auto;
+  width: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.appu-desktop-companion-viewport.menu-h-left .companion-menu-anchor {
+  left: auto;
+  right: 168px;
+  width: auto;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.appu-desktop-companion-viewport.menu-v-bottom .companion-menu-anchor {
+  top: auto;
+  bottom: 56px;
+  height: auto;
+}
+
+.appu-desktop-companion-viewport.menu-v-top .companion-menu-anchor {
+  top: 50px;
+  bottom: auto;
+  height: auto;
+}
+
+.companion-menu-anchor {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+  top: 50px;
+  z-index: 1000;
+}
+
+.companion-menu-anchor.is-open {
+  display: flex;
+  align-items: flex-start;
+  pointer-events: auto;
+}
+
+.studio-menu-anchor {
+  position: absolute;
+  top: 85px;
+  left: calc(50% - 290px);
+  z-index: 50;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  pointer-events: auto;
+}
+
+/* Floating Emotion Badges (Sleeping Zz, Thinking ?, Bored ...) */
+.floating-emote-indicator {
+  position: absolute;
+  top: 40px;
+  left: 80px;
+  pointer-events: none;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.floating-emote-indicator.sleep-badge {
+  display: flex;
+  gap: 3px;
+}
+
+.floating-emote-indicator .z-char {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+  font-weight: 700;
+  color: #f6c344;
+  text-shadow: 0 0 8px rgba(246, 195, 68, 0.7);
+  animation: float-z 2.2s infinite ease-in-out;
+}
+
+.floating-emote-indicator .z-1 { font-size: 14px; animation-delay: 0s; }
+.floating-emote-indicator .z-2 { font-size: 18px; animation-delay: 0.4s; }
+.floating-emote-indicator .z-3 { font-size: 22px; animation-delay: 0.8s; }
+
+@keyframes float-z {
+  0% { transform: translate(0, 0) scale(0.8); opacity: 0; }
+  50% { opacity: 1; }
+  100% { transform: translate(14px, -24px) scale(1.1); opacity: 0; }
+}
+
+.floating-emote-indicator.think-badge .question-mark {
+  font-size: 24px;
+  font-weight: 800;
+  color: #f6c344;
+  text-shadow: 0 0 10px rgba(246, 195, 68, 0.8);
+  animation: float-bob 1.8s infinite ease-in-out;
+}
+
+.floating-emote-indicator.bored-badge .ellipsis-dots {
+  font-size: 24px;
+  font-weight: 800;
+  color: #94a3b8;
+  letter-spacing: 2px;
+  animation: float-bob 2.0s infinite ease-in-out;
+}
+
+@keyframes float-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.companion-character-hitbox:active {
+  cursor: grabbing;
+}
+
+/* Floating Summon Pill when Appu is tucked away */
+.appu-summon-pill {
+  position: absolute;
+  bottom: 24px;
+  right: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  background: rgba(13, 22, 38, 0.94);
+  border: 1.5px solid rgba(246, 195, 68, 0.7);
+  border-radius: 999px;
+  color: #f6c344;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6), 0 0 16px rgba(246, 195, 68, 0.3);
+  backdrop-filter: blur(14px);
+  pointer-events: auto;
+  z-index: 100;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+  animation: appu-pill-entrance 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards, summon-pulse 2.5s infinite alternate ease-in-out 0.4s;
+}
+
+@keyframes appu-pill-entrance {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.75);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1.0);
+    filter: blur(0px);
+  }
+}
+
+.appu-summon-pill:hover {
+  transform: scale(1.08);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.7), 0 0 24px rgba(246, 195, 68, 0.5);
+}
+
+@keyframes summon-pulse {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-4px); }
+}
+
+/* Studio Browser Context Menu */
+.studio-context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: rgba(13, 22, 38, 0.96);
+  border: 1.5px solid rgba(246, 195, 68, 0.45);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75), 0 0 20px rgba(246, 195, 68, 0.2);
+  backdrop-filter: blur(20px);
+  min-width: 200px;
+  animation: bubble-pop 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.studio-context-menu .menu-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #f6c344;
+  padding: 6px 12px 4px;
+}
+
+.studio-context-menu .menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
+}
+
+.studio-context-menu .menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.studio-context-menu .menu-item:hover {
+  background: rgba(246, 195, 68, 0.16);
+  color: #f6c344;
+}
+
+/* -------------------------------------------------------------
+   2. REMINDER NOTIFICATION SPEECH BUBBLE POSITIONING
+-------------------------------------------------------------- */
+/* Responsive Positioning in Companion Viewport:
+   Ensures the bubble never covers Appu's head or face.
+   Appu sits at right: 0 (when menu-h-left) or left: 0 (when menu-h-right), width 220px.
+   The bubble floats beside him with the speech tail pointing directly at his head! */
+
+.appu-desktop-companion-viewport.menu-h-left .reminder-speech-bubble {
+  left: auto;
+  right: 224px;
+}
+
+.appu-desktop-companion-viewport.menu-h-right .reminder-speech-bubble {
+  left: 224px;
+  right: auto;
+}
+
+.appu-desktop-companion-viewport.menu-v-bottom .reminder-speech-bubble {
+  top: auto;
+  bottom: 120px;
+}
+
+.appu-desktop-companion-viewport.menu-v-top .reminder-speech-bubble {
+  top: 60px;
+  bottom: auto;
+}
+
+/* Studio Mode Positioning */
+.studio-bubble-wrapper {
+  position: absolute;
+  top: 90px;
+  left: calc(50% + 50px);
+  z-index: 50;
+  pointer-events: auto;
+}
+
+.studio-bubble-wrapper .reminder-speech-bubble {
+  position: relative;
+  top: 0;
+  left: 0;
+  right: auto;
+  bottom: auto;
+}
+
+/* -------------------------------------------------------------
+   3. STUDIO WINDOW APPLICATION
+-------------------------------------------------------------- */
+.appu-studio-window {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(circle at 50% 50%, #0d1b30 0%, #040813 85%);
+  overflow: hidden;
+  position: relative;
+}
+
+.appu-studio-window.transparent-mode {
+  background: transparent !important;
+}
+
+.window-header {
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--panel-border);
+  background: rgba(5, 8, 17, 0.85);
+  backdrop-filter: blur(12px);
+  z-index: 30;
+}
+
+.window-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-icon-box {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(246, 195, 68, 0.1);
+  border: 1px solid rgba(246, 195, 68, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-labels {
+  display: flex;
+  flex-direction: column;
+}
+
+.brand-heading {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.5px;
+}
+
+.brand-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.window-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.companion-mode-launcher-btn {
+  background: rgba(246, 195, 68, 0.12);
+  border: 1px solid rgba(246, 195, 68, 0.35);
+  color: var(--accent-gold);
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-right: 8px;
+}
+
+.companion-mode-launcher-btn:hover {
+  background: rgba(246, 195, 68, 0.22);
+  color: #ffffff;
+}
+
+.window-ctrl-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.window-ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.window-ctrl-btn.close:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+}
+
+.studio-main-body {
+  flex: 1;
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: calc(100vh - 58px);
+}
+
+.canvas-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.three-canvas {
+  width: 100% !important;
+  height: 100% !important;
+  cursor: grab;
+}
+
+.three-canvas:active {
+  cursor: grabbing;
+}
+
+.stage-hint-pill {
+  position: absolute;
+  bottom: 24px;
+  left: 230px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(8, 14, 26, 0.75);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(10px);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  color: var(--text-muted);
+  pointer-events: none;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.text-gold {
+  color: var(--accent-gold);
+}
+
+/* Left Sidebar */
+.studio-left-sidebar {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  width: 180px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  backdrop-filter: blur(16px);
+  z-index: 20;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.studio-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 12px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.brand-robot-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: rgba(246, 195, 68, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-text-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.3px;
+}
+
+.studio-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nav-item {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  text-align: left;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+}
+
+.nav-item.active {
+  background: var(--accent-cyan-soft);
+  border-color: rgba(0, 210, 238, 0.4);
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+/* Right Card */
+.studio-right-card {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  width: 320px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  backdrop-filter: blur(18px);
+  z-index: 20;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.55);
+}
+
+.card-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+}
+
+.anim-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.anim-pill-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.anim-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.anim-pill-btn.active {
+  background: var(--accent-cyan-soft);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-weight: 600;
+  box-shadow: 0 0 12px rgba(0, 210, 238, 0.25);
+}
+
+.expression-icons-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.expression-mini-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.expression-mini-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(246, 195, 68, 0.3);
+}
+
+.expression-mini-card.active {
+  background: rgba(246, 195, 68, 0.15);
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 12px rgba(246, 195, 68, 0.25);
+}
+
+.oled-mini-face {
+  width: 44px;
+  height: 24px;
+  background: #05070d;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mini-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.expression-mini-card.active .mini-label {
+  color: #ffffff;
+}
+
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toggle-line-btn {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toggle-line-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.toggle-line-btn.active {
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.state-badge {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.toggle-line-btn.active .state-badge {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.playback-footer-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.round-play-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #14b8a6;
+  border: none;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(20, 184, 166, 0.4);
+  transition: all 0.15s ease;
+}
+
+.round-play-btn:hover {
+  transform: scale(1.08);
+  background: #0d9488;
+}
+
+.speed-text {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: #ffffff;
+  min-width: 28px;
+}
+
+.speed-range-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+  outline: none;
+  cursor: pointer;
+}
+
+.speed-range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+}
+
+.icon-subtle-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.icon-subtle-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.slider-setting-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.slider-setting-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+.slider-setting-val {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.reset-action-btn {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-top: 4px;
+}
+
+.reset-action-btn:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #ffffff;
+}
+
+@media (max-width: 768px) {
+  .studio-left-sidebar {
+    position: static;
+    width: 100%;
+    border-radius: 0;
+  }
+  .studio-right-card {
+    position: static;
+    width: 100%;
+    border-radius: 0;
+  }
+  .stage-hint-pill {
+    left: 20px;
+  }
+}
+
+/* Studio: keep the chat below the window header */
+.appu-studio-window .quick-appu-chat-window {
+  top: 72px;
+  max-height: calc(100% - 88px);
+}
+
+/* Header: collapse launcher labels to icons instead of wrapping */
+.window-header {
+  gap: 12px;
+  min-width: 0;
+}
+
+.window-actions,
+.companion-mode-launcher-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1180px) {
+  .companion-mode-launcher-btn span {
+    display: none;
+  }
+  .companion-mode-launcher-btn {
+    padding: 6px 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .brand-sub {
+    display: none;
+  }
+  .window-ctrl-btn {
+    display: none;
+  }
+}

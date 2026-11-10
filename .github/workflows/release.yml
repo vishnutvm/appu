@@ -32,22 +32,18 @@ jobs:
         with:
           node-version: 22
           cache: 'npm'
-          cache-dependency-path: 'appu-3d/package-lock.json'
+          cache-dependency-path: 'package-lock.json'
 
       - name: Install Dependencies
-        working-directory: ./appu-3d
         run: npm ci
 
       - name: Run Test Suite
-        working-directory: ./appu-3d
         run: npm test
 
       - name: Build Application
-        working-directory: ./appu-3d
         run: npm run build:all
 
       - name: Package & Publish macOS DMG and ZIP
-        working-directory: ./appu-3d
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
@@ -86,22 +82,18 @@ jobs:
         with:
           node-version: 22
           cache: 'npm'
-          cache-dependency-path: 'appu-3d/package-lock.json'
+          cache-dependency-path: 'package-lock.json'
 
       - name: Install Dependencies
-        working-directory: ./appu-3d
         run: npm ci
 
       - name: Run Test Suite
-        working-directory: ./appu-3d
         run: npm test
 
       - name: Build Application
-        working-directory: ./appu-3d
         run: npm run build:all
 
       - name: Package & Publish Windows NSIS Installer
-        working-directory: ./appu-3d
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
@@ -121,6 +113,6 @@ jobs:
         with:
           name: windows-artifacts
           path: |
-            appu-3d/release/*.exe
-            appu-3d/release/*.yml
-            appu-3d/release/*.blockmap
+            release/*.exe
+            release/*.yml
+            release/*.blockmap
