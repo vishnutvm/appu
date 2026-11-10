@@ -3,6 +3,7 @@
   "appId": "ai.appu.desktop",
   "productName": "Appu",
   "copyright": "Copyright © 2026 Appu",
+  "icon": "build/icon.png",
   "directories": {
     "output": "release",
     "buildResources": "build"
@@ -23,6 +24,7 @@
   },
   "mac": {
     "category": "public.app-category.productivity",
+    "icon": "build/icon.icns",
     "target": [
       {
         "target": "dmg",
@@ -44,6 +46,7 @@
     }
   },
   "dmg": {
+    "icon": "build/icon.icns",
     "contents": [
       {
         "x": 130,
@@ -63,6 +66,7 @@
     "title": "${productName} ${version}"
   },
   "win": {
+    "icon": "build/icon.png",
     "target": [
       {
         "target": "nsis",
