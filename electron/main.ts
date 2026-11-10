@@ -22,7 +22,8 @@ import { createMemoryTools } from './ai/tools/memory-tools';
 import { createGeneralTools } from './ai/tools/general-tools';
 import { ConversationService } from './ai/conversation-service';
 import { registerAIIpcHandlers } from './ipc-ai';
-import { DEV_SERVER_ORIGIN, isSafeExternalUrl, isTrustedUrl } from './ipc-security';
+import { resolveCompanionEntry } from './companion-entry';
+import { isSafeExternalUrl, isTrustedUrl } from './ipc-security';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -319,14 +320,17 @@ function createWindow() {
   // Keep window reliably above full-screen and regular applications across all spaces
   applyWindowSpaceAndLevel(mainWindow);
 
+  const bundledIndexHtml = path.join(__dirname, '..', 'dist', 'index.html');
   const loadBundledApp = () =>
-    mainWindow?.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
+    mainWindow?.loadFile(bundledIndexHtml, {
       query: { mode: 'companion' },
     });
-  if (app.isPackaged) {
-    loadBundledApp();
+  const companionEntry = resolveCompanionEntry(app.isPackaged, bundledIndexHtml);
+  if (companionEntry.kind === 'file') {
+    // Packaged: loadFile only — never probe http://localhost:5173
+    mainWindow.loadFile(companionEntry.filePath, { query: companionEntry.query });
   } else {
-    mainWindow.loadURL(`${DEV_SERVER_ORIGIN}/?mode=companion`).catch(loadBundledApp);
+    mainWindow.loadURL(companionEntry.url).catch(loadBundledApp);
   }
 
   // Never navigate or open new windows inside Appu; hand safe links to the system browser
