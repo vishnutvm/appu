@@ -168,4 +168,25 @@ describe('InteractionMenu Component - Grouped Context Menu', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('closes on outside left-click mousedown, but ignores outside right-click mousedown', () => {
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      render(<InteractionMenu {...defaultProps} onClose={onClose} />);
+
+      // Wait for the 50ms mousedown listener registration
+      vi.advanceTimersByTime(60);
+
+      // Right-click mousedown outside must NOT close before onContextMenu toggles
+      fireEvent.mouseDown(document.body, { button: 2 });
+      expect(onClose).not.toHaveBeenCalled();
+
+      // Primary left-click mousedown outside closes the menu
+      fireEvent.mouseDown(document.body, { button: 0 });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

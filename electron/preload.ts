@@ -67,6 +67,9 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   setMenuOpen: (isOpen: boolean, mode?: 'menu' | 'modal' | 'chat') => {
     ipcRenderer.send('set-menu-open', isOpen, mode);
   },
+  setCompanionScale: (scale: number) => {
+    ipcRenderer.send('set-companion-scale', scale);
+  },
   getMenuPlacement: (): Promise<{ horizontal: 'left' | 'right'; vertical: 'top' | 'bottom' }> => {
     return ipcRenderer.invoke('get-menu-placement');
   },

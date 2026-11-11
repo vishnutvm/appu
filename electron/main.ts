@@ -34,6 +34,8 @@ let backendReminderService: BackendReminderService | null = null;
 
 const COMPACT_WIDTH = 220;
 const COMPACT_HEIGHT = 300;
+const MIN_COMPANION_SCALE = 0.6;
+const MAX_COMPANION_SCALE = 2.0;
 const MENU_EXPANDED_WIDTH = 570;
 const MENU_EXPANDED_HEIGHT = 420;
 const CHAT_EXPANDED_WIDTH = 580;
@@ -45,6 +47,44 @@ const INSET_LEFT = 50;
 const INSET_RIGHT = 50;
 const INSET_BOTTOM = 42;
 const INSET_TOP = 36;
+
+let companionScale = 1.0;
+let currentMenuMode: 'menu' | 'modal' | 'chat' = 'menu';
+
+function clampCompanionScale(value: unknown): number {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 1.0;
+  return Math.max(MIN_COMPANION_SCALE, Math.min(MAX_COMPANION_SCALE, Math.round(num * 100) / 100));
+}
+
+function getCompactWidth(): number {
+  return Math.round(COMPACT_WIDTH * companionScale);
+}
+
+function getCompactHeight(): number {
+  return Math.round(COMPACT_HEIGHT * companionScale);
+}
+
+function getExpandedDimensions(mode: 'menu' | 'modal' | 'chat') {
+  const compactW = getCompactWidth();
+  const compactH = getCompactHeight();
+  const baseW =
+    mode === 'modal'
+      ? MODAL_EXPANDED_WIDTH
+      : mode === 'chat'
+      ? CHAT_EXPANDED_WIDTH
+      : MENU_EXPANDED_WIDTH;
+  const baseH =
+    mode === 'modal'
+      ? MODAL_EXPANDED_HEIGHT
+      : mode === 'chat'
+      ? CHAT_EXPANDED_HEIGHT
+      : MENU_EXPANDED_HEIGHT;
+  return {
+    width: Math.max(baseW, compactW + (mode === 'modal' ? 490 : 320)),
+    height: Math.max(baseH, compactH + 40),
+  };
+}
 
 let currentWindowWidth = COMPACT_WIDTH;
 let currentWindowHeight = COMPACT_HEIGHT;
@@ -150,6 +190,9 @@ function updateTrayMenu(isVisible: boolean) {
     {
       label: '🔄 Check for Updates...',
       click: () => {
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+          showAppuWindow(false);
+        }
         if (updaterService) {
           updaterService.checkForUpdates(true);
         }
@@ -257,16 +300,18 @@ function computeMenuPlacement(
   targetHeight = MENU_EXPANDED_HEIGHT
 ): { horizontal: 'left' | 'right'; vertical: 'top' | 'bottom' } {
   try {
+    const compactW = getCompactWidth();
+    const compactH = getCompactHeight();
     const activeDisplay = screen.getDisplayNearestPoint({
-      x: pos.x + COMPACT_WIDTH / 2,
-      y: pos.y + COMPACT_HEIGHT / 2,
+      x: pos.x + compactW / 2,
+      y: pos.y + compactH / 2,
     });
     const bounds = activeDisplay.bounds;
-    const menuWidthNeeded = targetWidth - COMPACT_WIDTH;
-    const spaceOnRight = bounds.x + bounds.width + INSET_RIGHT - (pos.x + COMPACT_WIDTH);
+    const menuWidthNeeded = targetWidth - compactW;
+    const spaceOnRight = bounds.x + bounds.width + INSET_RIGHT - (pos.x + compactW);
     const placementHorizontal = spaceOnRight >= menuWidthNeeded ? 'right' : 'left';
 
-    const heightDiff = targetHeight - COMPACT_HEIGHT;
+    const heightDiff = targetHeight - compactH;
     const spaceOnTop = pos.y - bounds.y + INSET_TOP;
     const placementVertical = spaceOnTop >= heightDiff ? 'bottom' : 'top';
 
@@ -285,16 +330,20 @@ function createWindow() {
 
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth, height: screenHeight, x: displayX, y: displayY } = primaryDisplay.bounds;
+  const compactW = getCompactWidth();
+  const compactH = getCompactHeight();
+  currentWindowWidth = compactW;
+  currentWindowHeight = compactH;
 
   // Position in the Home Corner (bottom-right: Appu feet directly on bottom surface, right side at corner)
-  const initialX = Math.round(displayX + screenWidth - COMPACT_WIDTH + INSET_RIGHT - 10);
-  const initialY = Math.round(displayY + screenHeight - COMPACT_HEIGHT + INSET_BOTTOM);
+  const initialX = Math.round(displayX + screenWidth - compactW + INSET_RIGHT - 10);
+  const initialY = Math.round(displayY + screenHeight - compactH + INSET_BOTTOM);
   compactAppuPos = { x: initialX, y: initialY };
   currentMenuPlacement = computeMenuPlacement(compactAppuPos);
 
   mainWindow = new BrowserWindow({
-    width: COMPACT_WIDTH,
-    height: COMPACT_HEIGHT,
+    width: compactW,
+    height: compactH,
     x: initialX,
     y: initialY,
     frame: false,
@@ -379,6 +428,78 @@ ipcMain.on('set-ignore-mouse-events', (event, ignore: boolean) => {
   }
 });
 
+function setBoundsIfChanged(win: BrowserWindow, nextBounds: Electron.Rectangle) {
+  const current = win.getBounds();
+  if (
+    current.x === nextBounds.x &&
+    current.y === nextBounds.y &&
+    current.width === nextBounds.width &&
+    current.height === nextBounds.height
+  ) {
+    return;
+  }
+  win.setBounds(nextBounds);
+}
+
+function updateMenuPlacementIfChanged(
+  win: BrowserWindow,
+  nextPlacement: { horizontal: 'left' | 'right'; vertical: 'top' | 'bottom' }
+) {
+  if (
+    nextPlacement.horizontal === currentMenuPlacement.horizontal &&
+    nextPlacement.vertical === currentMenuPlacement.vertical
+  ) {
+    return;
+  }
+  currentMenuPlacement = nextPlacement;
+  win.webContents.send('menu-placement-changed', currentMenuPlacement);
+}
+
+function applyExpandedBounds(win: BrowserWindow, mode: 'menu' | 'modal' | 'chat') {
+  const compactW = getCompactWidth();
+  const compactH = getCompactHeight();
+  const { width: targetExpandedWidth, height: targetExpandedHeight } = getExpandedDimensions(mode);
+
+  currentWindowWidth = targetExpandedWidth;
+  currentWindowHeight = targetExpandedHeight;
+
+  const activeDisplay = screen.getDisplayNearestPoint({
+    x: compactAppuPos.x + compactW / 2,
+    y: compactAppuPos.y + compactH / 2,
+  });
+  const bounds = activeDisplay.bounds;
+
+  const nextPlacement = computeMenuPlacement(compactAppuPos, targetExpandedWidth, targetExpandedHeight);
+  updateMenuPlacementIfChanged(win, nextPlacement);
+
+  const menuWidthNeeded = targetExpandedWidth - compactW;
+  let targetX =
+    currentMenuPlacement.horizontal === 'right'
+      ? compactAppuPos.x
+      : compactAppuPos.x - menuWidthNeeded;
+
+  const minTargetX = bounds.x - INSET_LEFT;
+  const maxTargetX = bounds.x + bounds.width - targetExpandedWidth + INSET_RIGHT;
+  targetX = Math.max(minTargetX, Math.min(maxTargetX, targetX));
+
+  const heightDiff = targetExpandedHeight - compactH;
+  let targetY =
+    currentMenuPlacement.vertical === 'bottom'
+      ? compactAppuPos.y - heightDiff
+      : compactAppuPos.y;
+
+  const minTargetY = bounds.y - INSET_TOP;
+  const maxTargetY = bounds.y + bounds.height - targetExpandedHeight + INSET_BOTTOM;
+  targetY = Math.max(minTargetY, Math.min(maxTargetY, targetY));
+
+  setBoundsIfChanged(win, {
+    x: Math.round(targetX),
+    y: Math.round(targetY),
+    width: targetExpandedWidth,
+    height: targetExpandedHeight,
+  });
+}
+
 ipcMain.on('set-menu-open', (event, isOpen: boolean, mode: 'menu' | 'modal' | 'chat' = 'menu') => {
   try {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -386,71 +507,60 @@ ipcMain.on('set-menu-open', (event, isOpen: boolean, mode: 'menu' | 'modal' | 'c
 
     if (isOpen) {
       isMenuCurrentlyOpen = true;
-      const targetExpandedWidth =
-        mode === 'modal'
-          ? MODAL_EXPANDED_WIDTH
-          : mode === 'chat'
-          ? CHAT_EXPANDED_WIDTH
-          : MENU_EXPANDED_WIDTH;
-      const targetExpandedHeight =
-        mode === 'modal'
-          ? MODAL_EXPANDED_HEIGHT
-          : mode === 'chat'
-          ? CHAT_EXPANDED_HEIGHT
-          : MENU_EXPANDED_HEIGHT;
-
-      currentWindowWidth = targetExpandedWidth;
-      currentWindowHeight = targetExpandedHeight;
-
-      const activeDisplay = screen.getDisplayNearestPoint({
-        x: compactAppuPos.x + COMPACT_WIDTH / 2,
-        y: compactAppuPos.y + COMPACT_HEIGHT / 2,
-      });
-      const bounds = activeDisplay.bounds;
-
-      currentMenuPlacement = computeMenuPlacement(compactAppuPos, targetExpandedWidth, targetExpandedHeight);
-      win.webContents.send('menu-placement-changed', currentMenuPlacement);
-
-      const menuWidthNeeded = targetExpandedWidth - COMPACT_WIDTH;
-      let targetX =
-        currentMenuPlacement.horizontal === 'right'
-          ? compactAppuPos.x
-          : compactAppuPos.x - menuWidthNeeded;
-
-      const minTargetX = bounds.x - INSET_LEFT;
-      const maxTargetX = bounds.x + bounds.width - targetExpandedWidth + INSET_RIGHT;
-      targetX = Math.max(minTargetX, Math.min(maxTargetX, targetX));
-
-      const heightDiff = targetExpandedHeight - COMPACT_HEIGHT;
-      let targetY =
-        currentMenuPlacement.vertical === 'bottom'
-          ? compactAppuPos.y - heightDiff
-          : compactAppuPos.y;
-
-      const minTargetY = bounds.y - INSET_TOP;
-      const maxTargetY = bounds.y + bounds.height - targetExpandedHeight + INSET_BOTTOM;
-      targetY = Math.max(minTargetY, Math.min(maxTargetY, targetY));
-
-      win.setBounds({
-        x: Math.round(targetX),
-        y: Math.round(targetY),
-        width: targetExpandedWidth,
-        height: targetExpandedHeight,
-      });
+      currentMenuMode = mode;
+      applyExpandedBounds(win, mode);
     } else {
       isMenuCurrentlyOpen = false;
-      currentWindowWidth = COMPACT_WIDTH;
-      currentWindowHeight = COMPACT_HEIGHT;
+      const compactW = getCompactWidth();
+      const compactH = getCompactHeight();
+      currentWindowWidth = compactW;
+      currentWindowHeight = compactH;
 
-      win.setBounds({
+      setBoundsIfChanged(win, {
         x: Math.round(compactAppuPos.x),
         y: Math.round(compactAppuPos.y),
-        width: COMPACT_WIDTH,
-        height: COMPACT_HEIGHT,
+        width: compactW,
+        height: compactH,
       });
     }
   } catch (err) {
     console.error('set-menu-open error:', err);
+  }
+});
+
+ipcMain.on('set-companion-scale', (event, scale: number) => {
+  try {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return;
+
+    const oldW = getCompactWidth();
+    const oldH = getCompactHeight();
+    companionScale = clampCompanionScale(scale);
+    const newW = getCompactWidth();
+    const newH = getCompactHeight();
+
+    if (oldW !== newW || oldH !== newH) {
+      // Anchor bottom-center so scaling up grows upward symmetrically
+      compactAppuPos = {
+        x: Math.round(compactAppuPos.x - (newW - oldW) / 2),
+        y: Math.round(compactAppuPos.y - (newH - oldH)),
+      };
+    }
+
+    if (isMenuCurrentlyOpen) {
+      applyExpandedBounds(win, currentMenuMode);
+    } else {
+      currentWindowWidth = newW;
+      currentWindowHeight = newH;
+      win.setBounds({
+        x: Math.round(compactAppuPos.x),
+        y: Math.round(compactAppuPos.y),
+        width: newW,
+        height: newH,
+      });
+    }
+  } catch (err) {
+    console.error('set-companion-scale error:', err);
   }
 });
 
@@ -465,11 +575,13 @@ ipcMain.on('move-window-by', (event, deltaX: number, deltaY: number, allowOffscr
     const dY = Math.round(Number(deltaY));
     if (!Number.isFinite(dX) || !Number.isFinite(dY)) return;
 
+    const compactW = getCompactWidth();
+    const compactH = getCompactHeight();
     const rawNewX = compactAppuPos.x + dX;
     const rawNewY = compactAppuPos.y + dY;
 
-    const centerX = Math.round(rawNewX + COMPACT_WIDTH / 2);
-    const centerY = Math.round(rawNewY + COMPACT_HEIGHT / 2);
+    const centerX = Math.round(rawNewX + compactW / 2);
+    const centerY = Math.round(rawNewY + compactH / 2);
 
     let activeDisplay = screen.getPrimaryDisplay();
     try {
@@ -486,15 +598,15 @@ ipcMain.on('move-window-by', (event, deltaX: number, deltaY: number, allowOffscr
     const maxAllX = Math.max(...allDisplays.map((d) => d.bounds.x + d.bounds.width));
 
     const minX = allowOffscreen
-      ? Math.round(minAllX - COMPACT_WIDTH - 60)
+      ? Math.round(minAllX - compactW - 60)
       : Math.round(minAllX - INSET_LEFT);
     const maxX = allowOffscreen
-      ? Math.round(maxAllX + COMPACT_WIDTH + 60)
-      : Math.round(maxAllX - COMPACT_WIDTH + INSET_RIGHT);
+      ? Math.round(maxAllX + compactW + 60)
+      : Math.round(maxAllX - compactW + INSET_RIGHT);
 
     const bounds = activeDisplay.bounds;
     const minY = Math.round(bounds.y - INSET_TOP);
-    const maxY = Math.round(bounds.y + bounds.height - COMPACT_HEIGHT + INSET_BOTTOM);
+    const maxY = Math.round(bounds.y + bounds.height - compactH + INSET_BOTTOM);
 
     const clampedX = Math.max(minX, Math.min(maxX, rawNewX));
     const clampedY = Math.max(minY, Math.min(maxY, rawNewY));
@@ -531,21 +643,14 @@ ipcMain.on('move-window-by', (event, deltaX: number, deltaY: number, allowOffscr
 
     compactAppuPos = { x: clampedX, y: clampedY };
 
-    const updatedPlacement = computeMenuPlacement(compactAppuPos);
-    if (
-      updatedPlacement.horizontal !== currentMenuPlacement.horizontal ||
-      updatedPlacement.vertical !== currentMenuPlacement.vertical
-    ) {
-      currentMenuPlacement = updatedPlacement;
-      win.webContents.send('menu-placement-changed', currentMenuPlacement);
-    }
+    updateMenuPlacementIfChanged(win, computeMenuPlacement(compactAppuPos));
 
     if (!isMenuCurrentlyOpen) {
-      win.setBounds({
+      setBoundsIfChanged(win, {
         x: Math.round(clampedX),
         y: Math.round(clampedY),
-        width: COMPACT_WIDTH,
-        height: COMPACT_HEIGHT,
+        width: getCompactWidth(),
+        height: getCompactHeight(),
       });
     }
   } catch (err) {
@@ -563,21 +668,14 @@ ipcMain.on('set-window-position', (event, x: number, y: number) => {
     if (Number.isFinite(targetX) && Number.isFinite(targetY)) {
       compactAppuPos = { x: targetX, y: targetY };
 
-      const updatedPlacement = computeMenuPlacement(compactAppuPos);
-      if (
-        updatedPlacement.horizontal !== currentMenuPlacement.horizontal ||
-        updatedPlacement.vertical !== currentMenuPlacement.vertical
-      ) {
-        currentMenuPlacement = updatedPlacement;
-        win.webContents.send('menu-placement-changed', currentMenuPlacement);
-      }
+      updateMenuPlacementIfChanged(win, computeMenuPlacement(compactAppuPos));
 
       if (!isMenuCurrentlyOpen) {
-        win.setBounds({
+        setBoundsIfChanged(win, {
           x: targetX,
           y: targetY,
-          width: COMPACT_WIDTH,
-          height: COMPACT_HEIGHT,
+          width: getCompactWidth(),
+          height: getCompactHeight(),
         });
       }
     }
@@ -592,8 +690,8 @@ ipcMain.handle('get-screen-bounds', (event) => {
     if (win && !win.isDestroyed()) {
       const pos = win.getPosition();
       const currentDisplay = screen.getDisplayNearestPoint({
-        x: pos[0] + COMPACT_WIDTH / 2,
-        y: pos[1] + COMPACT_HEIGHT / 2,
+        x: pos[0] + getCompactWidth() / 2,
+        y: pos[1] + getCompactHeight() / 2,
       });
       return currentDisplay.bounds;
     }
@@ -681,6 +779,7 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     // Initialize services and secure IPC handlers
     storageService = StorageService.getInstance();
+    companionScale = clampCompanionScale(storageService.getSettings()?.companionScale ?? 1.0);
     updaterService = UpdaterService.getInstance(storageService);
     registerUpdaterIpcHandlers(() => mainWindow, updaterService, storageService);
 

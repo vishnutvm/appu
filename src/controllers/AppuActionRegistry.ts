@@ -284,6 +284,21 @@ export const APPU_ACTIONS: Record<AppuActionId, AppuActionDefinition> = {
   },
 
   // --- Playful ---
+  walk: {
+    id: 'walk',
+    category: 'playful',
+    label: 'Walk',
+    shortLabel: 'Walk',
+    description: 'Takes a cheerful stroll across the screen',
+    animation: 'walking',
+    duration: 6.0,
+    isLooping: false,
+    interruptible: true,
+    returnToIdle: true,
+    isGroundPose: false,
+    standingRequired: true,
+    associatedEmotion: 'happy',
+  },
   handstand: {
     id: 'handstand',
     category: 'playful',

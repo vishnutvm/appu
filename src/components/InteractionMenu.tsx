@@ -10,6 +10,7 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
   onTogglePin,
   onHideAppu,
   onWaveHello,
+  onWalk,
   onTakeSeat,
   onGoToSleep,
   onCheer,
@@ -25,6 +26,7 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
   onToggleFollowCursor,
   onOpenAssistantTab,
   assistantName = 'Appu',
+  availableActions = null,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [activeSubmenu, setActiveSubmenu] = useState<'actions' | 'settings' | null>(null);
@@ -47,6 +49,8 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
     };
 
     const handleClickOutside = (e: MouseEvent) => {
+      // Only primary (left) clicks dismiss via mousedown; right-clicks are handled by onContextMenu
+      if (e.button !== 0) return;
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
@@ -69,6 +73,95 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
   const isSitting = characterState === 'Sitting';
   const isSleeping = characterState === 'Sleeping';
   const isSittingOrSleeping = isSitting || isSleeping;
+
+  const isActionAvailable = (id: string) =>
+    availableActions === null || availableActions === undefined || availableActions.includes(id);
+
+  const visibleMenuActions = [
+    {
+      id: 'wave',
+      label: 'Wave',
+      visible: isActionAvailable('wave'),
+      active: activeActionId === 'wave',
+      disabled: false,
+      onClick: () => {
+        onWaveHello();
+        onClose();
+      },
+    },
+    {
+      id: 'walk',
+      label: 'Walk',
+      visible: isActionAvailable('walk'),
+      active: activeActionId === 'walk' || characterState === 'Walking',
+      disabled: false,
+      onClick: () => {
+        onWalk ? onWalk() : onWaveHello();
+        onClose();
+      },
+    },
+    {
+      id: 'cheer',
+      label: 'Cheer',
+      visible: isActionAvailable('cheer'),
+      active: activeActionId === 'cheer',
+      disabled: false,
+      onClick: () => {
+        onCheer ? onCheer() : onWaveHello();
+        onClose();
+      },
+    },
+    {
+      id: 'clap',
+      label: 'Clap',
+      visible: isActionAvailable('clap'),
+      active: activeActionId === 'clap',
+      disabled: false,
+      onClick: () => {
+        onClap ? onClap() : onWaveHello();
+        onClose();
+      },
+    },
+    {
+      id: 'dance',
+      label: 'Dance',
+      visible: isActionAvailable('dance'),
+      active: activeActionId === 'dance',
+      disabled: false,
+      onClick: () => {
+        onDance ? onDance() : onWaveHello();
+        onClose();
+      },
+    },
+    {
+      id: 'sit',
+      label: 'Sit',
+      visible: isActionAvailable('sit'),
+      active: false,
+      disabled: isSitting,
+      onClick: () => {
+        if (!isSitting) {
+          onTakeSeat();
+          onClose();
+        }
+      },
+    },
+    {
+      id: 'sleep',
+      label: 'Sleep',
+      visible: isActionAvailable('sleep'),
+      active: false,
+      disabled: isSleeping,
+      onClick: () => {
+        if (!isSleeping) {
+          onGoToSleep();
+          onClose();
+        }
+      },
+    },
+  ].filter((item) => item.visible);
+
+  const showActionsMenu = visibleMenuActions.length > 0 || isSittingOrSleeping;
 
   return (
     <div
@@ -98,117 +191,57 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
         </div>
 
         {/* --- Actions Submenu --- */}
-        <div
-          role="menuitem"
-          tabIndex={0}
-          aria-haspopup="true"
-          aria-expanded={activeSubmenu === 'actions'}
-          className={`menu-item-row has-submenu ${activeSubmenu === 'actions' ? 'is-submenu-open' : ''}`}
-          onMouseEnter={() => setActiveSubmenu('actions')}
-          onClick={() => setActiveSubmenu((prev) => (prev === 'actions' ? null : 'actions'))}
-        >
-          <span className="item-title">Actions</span>
-          <span className="submenu-arrow">›</span>
+        {showActionsMenu && (
+          <div
+            role="menuitem"
+            tabIndex={0}
+            aria-haspopup="true"
+            aria-expanded={activeSubmenu === 'actions'}
+            className={`menu-item-row has-submenu ${activeSubmenu === 'actions' ? 'is-submenu-open' : ''}`}
+            onMouseEnter={() => setActiveSubmenu('actions')}
+            onClick={() => setActiveSubmenu((prev) => (prev === 'actions' ? null : 'actions'))}
+          >
+            <span className="item-title">Actions</span>
+            <span className="submenu-arrow">›</span>
 
-          {activeSubmenu === 'actions' && (
-            <div
-              className="submenu-flyout"
-              role="menu"
-              aria-label="Actions Submenu"
-              onClick={(e) => e.stopPropagation()}
-            >
+            {activeSubmenu === 'actions' && (
               <div
-                role="menuitem"
-                tabIndex={0}
-                className={`menu-item-row ${activeActionId === 'wave' ? 'is-active' : ''}`}
-                onClick={() => {
-                  onWaveHello();
-                  onClose();
-                }}
+                className="submenu-flyout"
+                role="menu"
+                aria-label="Actions Submenu"
+                onClick={(e) => e.stopPropagation()}
               >
-                <span className="item-title">Wave</span>
-              </div>
+                {visibleMenuActions.map((item) => (
+                  <div
+                    key={item.id}
+                    role="menuitem"
+                    tabIndex={0}
+                    className={`menu-item-row ${item.active ? 'is-active' : ''} ${
+                      item.disabled ? 'is-disabled' : ''
+                    }`}
+                    onClick={item.onClick}
+                  >
+                    <span className="item-title">{item.label}</span>
+                  </div>
+                ))}
 
-              <div
-                role="menuitem"
-                tabIndex={0}
-                className={`menu-item-row ${activeActionId === 'cheer' ? 'is-active' : ''}`}
-                onClick={() => {
-                  onCheer ? onCheer() : onWaveHello();
-                  onClose();
-                }}
-              >
-                <span className="item-title">Cheer</span>
+                {isSittingOrSleeping && (
+                  <div
+                    role="menuitem"
+                    tabIndex={0}
+                    className="menu-item-row"
+                    onClick={() => {
+                      onStandUp ? onStandUp() : onWaveHello();
+                      onClose();
+                    }}
+                  >
+                    <span className="item-title">Stand Up</span>
+                  </div>
+                )}
               </div>
-
-              <div
-                role="menuitem"
-                tabIndex={0}
-                className={`menu-item-row ${activeActionId === 'clap' ? 'is-active' : ''}`}
-                onClick={() => {
-                  onClap ? onClap() : onWaveHello();
-                  onClose();
-                }}
-              >
-                <span className="item-title">Clap</span>
-              </div>
-
-              <div
-                role="menuitem"
-                tabIndex={0}
-                className={`menu-item-row ${activeActionId === 'dance' ? 'is-active' : ''}`}
-                onClick={() => {
-                  onDance ? onDance() : onWaveHello();
-                  onClose();
-                }}
-              >
-                <span className="item-title">Dance</span>
-              </div>
-
-              <div
-                role="menuitem"
-                tabIndex={0}
-                className={`menu-item-row ${isSitting ? 'is-disabled' : ''}`}
-                onClick={() => {
-                  if (!isSitting) {
-                    onTakeSeat();
-                    onClose();
-                  }
-                }}
-              >
-                <span className="item-title">Sit</span>
-              </div>
-
-              <div
-                role="menuitem"
-                tabIndex={0}
-                className={`menu-item-row ${isSleeping ? 'is-disabled' : ''}`}
-                onClick={() => {
-                  if (!isSleeping) {
-                    onGoToSleep();
-                    onClose();
-                  }
-                }}
-              >
-                <span className="item-title">Sleep</span>
-              </div>
-
-              {isSittingOrSleeping && (
-                <div
-                  role="menuitem"
-                  tabIndex={0}
-                  className="menu-item-row"
-                  onClick={() => {
-                    onStandUp ? onStandUp() : onWaveHello();
-                    onClose();
-                  }}
-                >
-                  <span className="item-title">Stand Up</span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         {/* --- Reminders Direct Item --- */}
         <div

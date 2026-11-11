@@ -3,10 +3,13 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 export type ReleaseChannel = 'development' | 'beta' | 'stable';
+export type CompanionCharacterId = 'appu-3d' | 'rabbit-video';
 
 export interface StorageSettings {
   userName?: string;
   assistantName?: string;
+  companionCharacter?: CompanionCharacterId;
+  companionScale?: number;
   isPinned: boolean;
   autonomousRoaming: boolean;
   freeFallEnabled: boolean;
@@ -21,6 +24,8 @@ export interface StorageSettings {
 const DEFAULT_SETTINGS: StorageSettings = {
   userName: 'Vishnu',
   assistantName: 'Appu',
+  companionCharacter: 'appu-3d',
+  companionScale: 1.0,
   isPinned: false,
   autonomousRoaming: true,
   freeFallEnabled: true,

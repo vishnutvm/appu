@@ -9,6 +9,7 @@ export type UpdateState =
   | 'Error';
 
 export type ReleaseChannel = 'development' | 'beta' | 'stable';
+export type CompanionCharacterId = 'appu-3d' | 'rabbit-video';
 
 export interface ReleaseNoteInfo {
   version: string;
@@ -45,6 +46,8 @@ export interface UpdaterStatus {
 export interface StorageSettings {
   userName?: string;
   assistantName?: string;
+  companionCharacter?: CompanionCharacterId;
+  companionScale?: number;
   isPinned: boolean;
   autonomousRoaming: boolean;
   freeFallEnabled: boolean;

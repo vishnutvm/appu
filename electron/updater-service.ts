@@ -1,6 +1,9 @@
 import { app, BrowserWindow } from 'electron';
 import { autoUpdater, UpdateInfo as ElectronUpdateInfo, ProgressInfo } from 'electron-updater';
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as path from 'path';
+import { execFileSync, spawn } from 'child_process';
 import {
   UpdateState,
   ReleaseChannel,
@@ -34,6 +37,7 @@ export class UpdaterService extends EventEmitter {
   private pendingNotificationInfo: UpdateInfo | null = null;
   private mainWindow: BrowserWindow | null = null;
   private initialCheckTimer: NodeJS.Timeout | null = null;
+  private downloadedUpdateFilePath: string | null = null;
 
   constructor(storageService?: StorageService, customUpdater?: any) {
     super();
@@ -90,6 +94,7 @@ export class UpdaterService extends EventEmitter {
     if (!this.updater || typeof this.updater.on !== 'function') return;
 
     this.updater.on('checking-for-update', () => {
+      this.downloadedUpdateFilePath = null;
       this.transitionTo('Checking');
     });
 
@@ -138,6 +143,7 @@ export class UpdaterService extends EventEmitter {
 
     this.updater.on('update-downloaded', (info: ElectronUpdateInfo) => {
       const parsedNotes = this.normalizeReleaseNotes(info.releaseNotes);
+      this.downloadedUpdateFilePath = (info as any)?.downloadedFile || null;
       this.currentUpdateInfo = {
         version: info.version,
         releaseDate: info.releaseDate,
@@ -166,6 +172,14 @@ export class UpdaterService extends EventEmitter {
 
     this.updater.on('error', (err: Error) => {
       console.error('[AutoUpdater Error]', err);
+      if (
+        process.platform === 'darwin' &&
+        this.state === 'Installing' &&
+        this.isMacSignatureError(err) &&
+        this.tryMacFallbackZipInstall()
+      ) {
+        return;
+      }
       const friendlyMessage = this.formatErrorMessage(err);
       this.currentError = friendlyMessage;
       this.currentProgress = null;
@@ -199,6 +213,9 @@ export class UpdaterService extends EventEmitter {
     }
     if (msg.includes('sha512 checksum mismatch') || msg.includes('verification failed')) {
       return 'Security verification failed: Update signature or checksum did not match. Update was safely aborted.';
+    }
+    if (msg.includes('code signature') || msg.includes('did not pass validation')) {
+      return 'macOS could not replace the unsigned app automatically. Move Appu to /Applications or download the latest DMG from appu releases.';
     }
     if (msg.includes('timed out') || msg.includes('timeout')) {
       return 'Connection timed out while checking for updates. Please try again.';
@@ -311,6 +328,112 @@ export class UpdaterService extends EventEmitter {
     }
   }
 
+  private isMacSignatureError(err: Error | null | undefined): boolean {
+    const msg = (err?.message || '').toLowerCase();
+    return (
+      msg.includes('code signature') ||
+      msg.includes('did not pass validation') ||
+      msg.includes('codesign')
+    );
+  }
+
+  private getMacAppBundlePath(): string | null {
+    if (process.platform !== 'darwin') return null;
+    const marker = '.app/Contents/MacOS/';
+    const idx = process.execPath.indexOf(marker);
+    if (idx === -1) return null;
+    const candidate = process.execPath.slice(0, idx + 4);
+    if (!candidate.endsWith('.app') || candidate.startsWith('/Volumes/')) {
+      return null;
+    }
+    return candidate;
+  }
+
+  private isMacAdHocOrUnsigned(bundlePath: string): boolean {
+    try {
+      const output = execFileSync('codesign', ['-dv', bundlePath], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      return !output.includes('Authority=Developer ID Application:');
+    } catch (err: any) {
+      const stderr = String(err?.stderr || err?.message || '');
+      if (stderr.includes('Authority=Developer ID Application:')) {
+        return false;
+      }
+      return true;
+    }
+  }
+
+  private tryMacFallbackZipInstall(): boolean {
+    if (process.platform !== 'darwin') return false;
+    const zipPath = this.downloadedUpdateFilePath;
+    if (!zipPath || !fs.existsSync(zipPath)) return false;
+
+    const bundlePath = this.getMacAppBundlePath();
+    if (!bundlePath || !fs.existsSync(bundlePath)) return false;
+
+    try {
+      fs.accessSync(path.dirname(bundlePath), fs.constants.W_OK);
+    } catch {
+      return false;
+    }
+
+    try {
+      if (typeof this.updater?.closeServerIfExists === 'function') {
+        this.updater.closeServerIfExists();
+      }
+    } catch {
+      // ignore proxy shutdown errors
+    }
+
+    const script = [
+      'PID="$1"',
+      'ZIP="$2"',
+      'APP_PATH="$3"',
+      'i=0',
+      'while kill -0 "$PID" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.2; i=$((i + 1)); done',
+      'TMP_DIR="$(mktemp -d /tmp/appu-update.XXXXXX)" || exit 1',
+      'ditto -x -k "$ZIP" "$TMP_DIR" || { rm -rf "$TMP_DIR"; exit 1; }',
+      'NEW_APP="$(find "$TMP_DIR" -maxdepth 2 -name "*.app" -type d | head -n 1)"',
+      'if [ -z "$NEW_APP" ]; then rm -rf "$TMP_DIR"; exit 1; fi',
+      'BACKUP="${APP_PATH}.bak"',
+      'rm -rf "$BACKUP"',
+      'mv "$APP_PATH" "$BACKUP" || { rm -rf "$TMP_DIR"; exit 1; }',
+      'if mv "$NEW_APP" "$APP_PATH"; then',
+      '  rm -rf "$BACKUP"',
+      '  xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true',
+      '  open -n "$APP_PATH"',
+      'else',
+      '  mv "$BACKUP" "$APP_PATH" 2>/dev/null || true',
+      'fi',
+      'rm -rf "$TMP_DIR"',
+    ].join('\n');
+
+    try {
+      const child = spawn(
+        '/bin/sh',
+        ['-c', script, 'appu-mac-updater', String(process.pid), zipPath, bundlePath],
+        {
+          detached: true,
+          stdio: 'ignore',
+        }
+      );
+      child.unref();
+      setTimeout(() => {
+        try {
+          app.quit();
+        } catch {
+          // ignore in tests
+        }
+      }, 150);
+      return true;
+    } catch (err) {
+      console.error('[AutoUpdater] macOS fallback swap launch failed:', err);
+      return false;
+    }
+  }
+
   public quitAndInstall(): void {
     if (this.state !== 'Downloaded') {
       console.warn('quitAndInstall called but state is not Downloaded');
@@ -336,6 +459,13 @@ export class UpdaterService extends EventEmitter {
       }
     } catch {
       // In tests
+    }
+
+    if (process.platform === 'darwin') {
+      const bundlePath = this.getMacAppBundlePath();
+      if (bundlePath && this.isMacAdHocOrUnsigned(bundlePath) && this.tryMacFallbackZipInstall()) {
+        return;
+      }
     }
 
     if (this.updater && typeof this.updater.quitAndInstall === 'function') {

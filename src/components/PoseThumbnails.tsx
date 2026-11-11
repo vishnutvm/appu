@@ -23,6 +23,26 @@ export const PoseThumbnail: React.FC<PoseThumbnailProps> = ({
 
   switch (actionId) {
     // --- GREETINGS ---
+    case 'walk':
+      return (
+        <svg width={size} height={size} viewBox="0 0 100 100" fill="none" className={className}>
+          <path d="M50 18V10" stroke={goldMetal} strokeWidth="3" strokeLinecap="round" />
+          <circle cx="50" cy="8" r="4" fill={goldMetal} />
+          <rect x="30" y="16" width="42" height="30" rx="13" fill={helmetWhite} stroke={helmetShade} strokeWidth="1.5" />
+          <rect x="36" y="21" width="32" height="20" rx="8" fill={visorBlack} />
+          <circle cx="46" cy="30" r="3" fill={eyeGold} />
+          <circle cx="60" cy="30" r="3" fill={eyeGold} />
+          <path d="M43 47H58L60 66H41L43 47Z" fill={helmetWhite} />
+          <circle cx="51" cy="56" r="4.5" fill={cyanCore} />
+          {/* Swinging Arms */}
+          <path d="M42 50L30 62L25 68" stroke={helmetWhite} strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M59 50L70 60L76 54" stroke={helmetWhite} strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" />
+          {/* Striding Legs */}
+          <path d="M46 66L36 82L32 86" stroke={helmetWhite} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M55 66L66 80L72 84" stroke={helmetWhite} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+
     case 'wave':
       return (
         <svg width={size} height={size} viewBox="0 0 100 100" fill="none" className={className}>

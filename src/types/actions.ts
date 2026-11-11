@@ -31,6 +31,7 @@ export type AppuActionId =
   | 'wake_up'
   | 'stretch'
   // Playful
+  | 'walk'
   | 'handstand'
   | 'upside_down'
   | 'spin'

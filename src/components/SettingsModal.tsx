@@ -13,8 +13,11 @@ import {
   Key,
   Brain,
   Trash2,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { UpdaterStatus, ReleaseChannel } from '../types/updater';
+import { CompanionCharacterId } from '../types/character';
 import './SettingsModal.css';
 
 interface SettingsModalProps {
@@ -31,6 +34,10 @@ interface SettingsModalProps {
   onSetChannel?: (channel: ReleaseChannel) => void;
   onSetAutoCheck?: (enabled: boolean) => void;
   onAssistantNameChange?: (name: string) => void;
+  companionCharacter?: CompanionCharacterId;
+  onCompanionCharacterChange?: (character: CompanionCharacterId) => void;
+  companionScale?: number;
+  onCompanionScaleChange?: (scale: number) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -46,11 +53,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onInstallUpdate,
   onSetChannel,
   onAssistantNameChange,
+  companionCharacter: propCompanionCharacter,
+  onCompanionCharacterChange,
+  companionScale: propCompanionScale,
+  onCompanionScaleChange,
 }) => {
   const [internalStatus, setInternalStatus] = useState<UpdaterStatus | null>(null);
   const [showNotes, setShowNotes] = useState(false);
   const [userName, setUserName] = useState<string>('Vishnu');
   const [assistantName, setAssistantName] = useState<string>('Appu');
+  const [selectedCharacter, setSelectedCharacter] = useState<CompanionCharacterId>(
+    propCompanionCharacter || 'appu-3d'
+  );
+  const [companionScale, setCompanionScale] = useState<number>(propCompanionScale ?? 1.0);
   const [isSaved, setIsSaved] = useState<boolean>(false);
 
   // AI Configuration State
@@ -74,6 +89,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [propUpdaterStatus]);
 
   useEffect(() => {
+    if (propCompanionCharacter) {
+      setSelectedCharacter(propCompanionCharacter);
+    }
+  }, [propCompanionCharacter]);
+
+  useEffect(() => {
+    if (typeof propCompanionScale === 'number' && Number.isFinite(propCompanionScale)) {
+      setCompanionScale(propCompanionScale);
+    }
+  }, [propCompanionScale]);
+
+  useEffect(() => {
     if (!isOpen) return;
 
     // Load from desktop storage
@@ -83,8 +110,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         .then((s: any) => {
           if (s?.userName) setUserName(s.userName);
           if (s?.assistantName) setAssistantName(s.assistantName);
+          if (s?.companionCharacter === 'appu-3d' || s?.companionCharacter === 'rabbit-video') {
+            setSelectedCharacter(s.companionCharacter);
+          }
+          if (typeof s?.companionScale === 'number' && Number.isFinite(s.companionScale)) {
+            setCompanionScale(s.companionScale);
+          }
         })
         .catch(() => {});
+    } else if (typeof window !== 'undefined') {
+      const savedChar = window.localStorage.getItem('appu_companion_character');
+      if (savedChar === 'appu-3d' || savedChar === 'rabbit-video') {
+        setSelectedCharacter(savedChar);
+      }
+      const savedScale = Number(window.localStorage.getItem('appu_companion_scale'));
+      if (Number.isFinite(savedScale) && savedScale >= 0.6 && savedScale <= 2.0) {
+        setCompanionScale(savedScale);
+      }
     }
 
     // Load AI Brain configuration from backend
@@ -282,6 +324,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const isBeta = status.channel === 'beta';
 
+  const handleSelectCharacter = (character: CompanionCharacterId) => {
+    setSelectedCharacter(character);
+    if (window.desktopAPI?.storage) {
+      window.desktopAPI.storage.saveSettings({ companionCharacter: character }).catch(() => {});
+    }
+    try {
+      window.localStorage.setItem('appu_companion_character', character);
+    } catch {
+      // Ignore storage quota errors
+    }
+    onCompanionCharacterChange?.(character);
+  };
+
+  const handleScaleChange = (rawScale: number) => {
+    const clamped = Math.max(0.6, Math.min(2.0, Math.round(rawScale * 100) / 100));
+    setCompanionScale(clamped);
+    if (window.desktopAPI?.storage) {
+      window.desktopAPI.storage.saveSettings({ companionScale: clamped }).catch(() => {});
+    }
+    window.desktopAPI?.setCompanionScale?.(clamped);
+    try {
+      window.localStorage.setItem('appu_companion_scale', String(clamped));
+    } catch {
+      // Ignore storage quota errors
+    }
+    onCompanionScaleChange?.(clamped);
+  };
+
   const handleCloseModal = () => {
     handleSaveNames(userName, assistantName);
     onClose();
@@ -309,6 +379,107 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div className="settings-body">
+          {/* Companion Character Selector */}
+          <div className="settings-group">
+            <span className="group-label">Companion</span>
+            <div className="companion-picker-grid" role="radiogroup" aria-label="Companion">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={selectedCharacter === 'appu-3d'}
+                className={`companion-picker-card ${selectedCharacter === 'appu-3d' ? 'selected' : ''}`}
+                onClick={() => handleSelectCharacter('appu-3d')}
+              >
+                <div className="companion-picker-thumb">
+                  <img
+                    src="./characters/robo/character-thumbnail.png"
+                    alt="Robo"
+                  />
+                </div>
+                <div className="companion-picker-meta">
+                  <span className="companion-picker-name">Robo</span>
+                  <span className="companion-default-badge">Default</span>
+                </div>
+                {selectedCharacter === 'appu-3d' && (
+                  <CheckCircle2 size={14} className="companion-picker-check" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                role="radio"
+                aria-checked={selectedCharacter === 'rabbit-video'}
+                className={`companion-picker-card ${selectedCharacter === 'rabbit-video' ? 'selected' : ''}`}
+                onClick={() => handleSelectCharacter('rabbit-video')}
+              >
+                <div className="companion-picker-thumb">
+                  <img
+                    src="./characters/rabbit-video/character-thumbnail.png"
+                    alt="Rabbit"
+                  />
+                </div>
+                <div className="companion-picker-meta">
+                  <span className="companion-picker-name">Rabbit</span>
+                </div>
+                {selectedCharacter === 'rabbit-video' && (
+                  <CheckCircle2 size={14} className="companion-picker-check" />
+                )}
+              </button>
+            </div>
+
+            <div className="companion-scale-row">
+              <div className="companion-scale-header">
+                <span className="row-main">Companion Size (Scale)</span>
+                <span className="companion-scale-value">{Math.round(companionScale * 100)}%</span>
+              </div>
+              <div className="companion-scale-controls">
+                <button
+                  type="button"
+                  className="companion-scale-btn"
+                  onClick={() => handleScaleChange(companionScale - 0.15)}
+                  disabled={companionScale <= 0.6}
+                  aria-label="Scale Out"
+                  title="Scale Out (Smaller)"
+                >
+                  <ZoomOut size={12} />
+                  <span>Scale Out</span>
+                </button>
+                <input
+                  type="range"
+                  className="companion-scale-slider"
+                  aria-label="Companion Size Slider"
+                  min={0.6}
+                  max={2.0}
+                  step={0.05}
+                  value={companionScale}
+                  onChange={(e) => handleScaleChange(parseFloat(e.target.value))}
+                />
+                <button
+                  type="button"
+                  className="companion-scale-btn"
+                  onClick={() => handleScaleChange(companionScale + 0.15)}
+                  disabled={companionScale >= 2.0}
+                  aria-label="Scale In"
+                  title="Scale In (Larger)"
+                >
+                  <ZoomIn size={12} />
+                  <span>Scale In</span>
+                </button>
+                {Math.abs(companionScale - 1.0) > 0.01 && (
+                  <button
+                    type="button"
+                    className="companion-scale-btn"
+                    onClick={() => handleScaleChange(1.0)}
+                    aria-label="Reset Scale"
+                    title="Reset to 100%"
+                  >
+                    100%
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Identity & Persona */}
           <div className="settings-group">
             <span className="group-label">Identity & Persona</span>

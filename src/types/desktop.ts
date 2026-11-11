@@ -124,6 +124,7 @@ export interface DesktopAPI {
   onToggleMenu: (callback: () => void) => () => void;
   onVisibilityChanged: (callback: (visible: boolean) => void) => () => void;
   setMenuOpen: (isOpen: boolean, mode?: 'menu' | 'modal' | 'chat') => void;
+  setCompanionScale?: (scale: number) => void;
   getMenuPlacement?: () => Promise<MenuPlacement>;
   onMenuPlacementChanged: (callback: (placement: MenuPlacement) => void) => () => void;
   onRequestHide?: (callback: () => void) => () => void;

@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { AppuScene } from './components/AppuScene';
+import { VideoCharacterStage } from './components/VideoCharacterStage';
+import {
+  DEFAULT_RABBIT_VIDEO_MANIFEST,
+  getAvailableActionIds,
+  loadVideoCharacterManifest,
+} from './services/videoCharacterManifest';
 import { CharacterControls } from './components/CharacterControls';
 import { ReminderBubble } from './components/ReminderBubble';
 import { InteractionMenu } from './components/InteractionMenu';
@@ -15,7 +21,7 @@ import { AppuActionRegistry } from './controllers/AppuActionRegistry';
 import { RemindersManager } from './controllers/RemindersManager';
 import { ReminderRecurrence } from './types/reminders';
 import { AppuActionId } from './types/actions';
-import { INITIAL_CONTROLS, CharacterControlState, AppuAnimationState, AppuEmotion } from './types/character';
+import { INITIAL_CONTROLS, CharacterControlState, AppuAnimationState, AppuEmotion, CompanionCharacterId } from './types/character';
 import { CompanionStateLabel } from './types/menu';
 import { UpdaterStatus } from './types/updater';
 import { Sparkles, Bell, Menu as MenuIcon, Play, Sliders } from 'lucide-react';
@@ -58,6 +64,39 @@ export const App: React.FC = () => {
   const [freeFallEnabled, setFreeFallEnabled] = useState(true);
   const [updaterStatus, setUpdaterStatus] = useState<UpdaterStatus | null>(null);
   const [assistantName, setAssistantName] = useState<string>('Appu');
+  const [companionCharacter, setCompanionCharacter] = useState<CompanionCharacterId>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = window.localStorage.getItem('appu_companion_character');
+      if (saved === 'rabbit-video' || saved === 'appu-3d') return saved;
+    }
+    return 'appu-3d';
+  });
+  const [companionScale, setCompanionScale] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = Number(window.localStorage.getItem('appu_companion_scale'));
+      if (Number.isFinite(saved) && saved >= 0.6 && saved <= 2.0) return saved;
+    }
+    return 1.0;
+  });
+  const [videoAvailableActions, setVideoAvailableActions] = useState<string[]>(() =>
+    getAvailableActionIds(DEFAULT_RABBIT_VIDEO_MANIFEST)
+  );
+
+  useEffect(() => {
+    if (companionCharacter !== 'rabbit-video') return;
+    let cancelled = false;
+    loadVideoCharacterManifest('rabbit-video').then((manifest) => {
+      if (!cancelled) {
+        setVideoAvailableActions(getAvailableActionIds(manifest));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [companionCharacter]);
+
+  const activeAvailableActions =
+    companionCharacter === 'rabbit-video' ? videoAvailableActions : null;
 
   const lastActivityRef = useRef<number>(Date.now());
   const isExitingRef = useRef<boolean>(false);
@@ -129,20 +168,56 @@ export const App: React.FC = () => {
     recurrence?: ReminderRecurrence;
   } | null>(null);
 
+  const [updateBannerDismissedKey, setUpdateBannerDismissedKey] = useState<string | null>(null);
+  const updateBannerKey = updaterStatus
+    ? `${updaterStatus.state}:${updaterStatus.updateInfo?.version || ''}:${updaterStatus.error || ''}`
+    : null;
+  const showCompanionUpdateBanner =
+    isCompanionMode &&
+    Boolean(updaterStatus) &&
+    !reminder &&
+    !showSettings &&
+    (updaterStatus!.state === 'Update Available' ||
+      updaterStatus!.state === 'Downloading' ||
+      updaterStatus!.state === 'Downloaded' ||
+      (updaterStatus!.state === 'Error' && Boolean(updaterStatus!.error))) &&
+    updateBannerDismissedKey !== updateBannerKey;
+
   // Sync native window bounds between compact (220x300) and expanded menu / modals / chat
+  const lastWindowExpandStateRef = useRef<string | null>(null);
   useEffect(() => {
     if (isCompanionMode) {
+      const nextState =
+        showSettings || showRemindersModal
+          ? 'true:modal'
+          : isChatOpen
+          ? 'true:chat'
+          : isMenuOpen || isActionsPanelOpen || Boolean(reminder) || showCompanionUpdateBanner
+          ? 'true:menu'
+          : 'false';
+      if (lastWindowExpandStateRef.current === nextState) return;
+      lastWindowExpandStateRef.current = nextState;
+
       if (showSettings || showRemindersModal) {
         window.desktopAPI?.setMenuOpen(true, 'modal');
       } else if (isChatOpen) {
         window.desktopAPI?.setMenuOpen(true, 'chat');
-      } else if (isMenuOpen || isActionsPanelOpen || Boolean(reminder)) {
+      } else if (isMenuOpen || isActionsPanelOpen || Boolean(reminder) || showCompanionUpdateBanner) {
         window.desktopAPI?.setMenuOpen(true, 'menu');
       } else {
         window.desktopAPI?.setMenuOpen(false);
       }
     }
-  }, [isMenuOpen, isActionsPanelOpen, showSettings, showRemindersModal, reminder, isChatOpen, isCompanionMode]);
+  }, [
+    isMenuOpen,
+    isActionsPanelOpen,
+    showSettings,
+    showRemindersModal,
+    reminder,
+    isChatOpen,
+    showCompanionUpdateBanner,
+    isCompanionMode,
+  ]);
 
   const [controls, setControls] = useState<CharacterControlState>(() => ({
     ...INITIAL_CONTROLS,
@@ -289,20 +364,52 @@ export const App: React.FC = () => {
   const isGroundPose = AppuActionRegistry.isGroundPose(controls.animationState);
 
   // Action dispatchers
+  const walkActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearWalkActionTimer = useCallback(() => {
+    if (walkActionTimerRef.current) {
+      clearTimeout(walkActionTimerRef.current);
+      walkActionTimerRef.current = null;
+    }
+  }, []);
+
   const handleTriggerAction = (actionId: AppuActionId) => {
+    clearWalkActionTimer();
     setActiveActionId(actionId);
+
+    if (actionId === 'walk' && isCompanionMode && movementControllerRef.current && !isPinned) {
+      movementControllerRef.current.strollOnScreen(() => {
+        setActiveActionId(null);
+      });
+      window.dispatchEvent(new CustomEvent('appu-trigger-action', { detail: { actionId } }));
+      return;
+    }
+
     const actDef = AppuActionRegistry.getById(actionId);
     if (actDef) {
       setControls((prev) => ({
         ...prev,
         animationState: actDef.animation,
         emotion: actDef.associatedEmotion,
+        rotation: actionId === 'walk' ? 0 : prev.rotation,
       }));
     }
+
+    if (actionId === 'walk' && companionCharacter === 'rabbit-video') {
+      walkActionTimerRef.current = setTimeout(() => {
+        walkActionTimerRef.current = null;
+        setActiveActionId(null);
+        setControls((prev) =>
+          prev.animationState === 'walking' ? { ...prev, animationState: 'idle' } : prev
+        );
+      }, 6000);
+    }
+
     window.dispatchEvent(new CustomEvent('appu-trigger-action', { detail: { actionId } }));
   };
 
   const handleStandUp = () => {
+    clearWalkActionTimer();
     setActiveActionId(null);
     setControls((prev) => ({
       ...prev,
@@ -310,6 +417,15 @@ export const App: React.FC = () => {
     }));
     window.dispatchEvent(new CustomEvent('appu-stand-up'));
   };
+
+  const handleVideoAnimationEnded = useCallback(() => {
+    clearWalkActionTimer();
+    setActiveActionId(null);
+    setControls((prev) => ({
+      ...prev,
+      animationState: 'idle',
+    }));
+  }, [clearWalkActionTimer]);
 
 
   // Smooth spawn-in / spawn-out & hide transitions
@@ -434,13 +550,23 @@ export const App: React.FC = () => {
     };
   }, [isCompanionMode]);
 
-  // Initial mount: finish spawn-in into active
+  // Initial mount: finish spawn-in into active, and finish spawn-out for video character
   useEffect(() => {
     const timer = setTimeout(() => {
       setSpawnState((prev) => (prev === 'spawning_in' ? 'active' : prev));
     }, 550);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (companionCharacter !== 'rabbit-video' || spawnState !== 'spawning_out') return;
+    const timer = setTimeout(() => {
+      setIsHidden(true);
+      setSpawnState('hidden');
+      window.desktopAPI?.notifyHideFinished?.();
+    }, 380);
+    return () => clearTimeout(timer);
+  }, [companionCharacter, spawnState]);
 
   // Initialize Desktop Autonomous Movement
   useEffect(() => {
@@ -465,6 +591,14 @@ export const App: React.FC = () => {
           .then((s) => {
             if (s?.assistantName) {
               setAssistantName(s.assistantName);
+            }
+            if (s?.companionCharacter === 'rabbit-video' || s?.companionCharacter === 'appu-3d') {
+              setCompanionCharacter(s.companionCharacter);
+            }
+            if (typeof s?.companionScale === 'number' && Number.isFinite(s.companionScale)) {
+              const clamped = Math.max(0.6, Math.min(2.0, s.companionScale));
+              setCompanionScale(clamped);
+              window.desktopAPI?.setCompanionScale?.(clamped);
             }
             if (typeof s?.isPinned === 'boolean') {
               setIsPinned(s.isPinned);
@@ -738,7 +872,14 @@ export const App: React.FC = () => {
   // COMPANION MODE RENDER: Transparent, Frameless Desktop Widget
   // -------------------------------------------------------------
   if (isCompanionMode) {
-    const isExpanded = isMenuOpen || isActionsPanelOpen || showSettings || showRemindersModal || isChatOpen || Boolean(reminder);
+    const isExpanded =
+      isMenuOpen ||
+      isActionsPanelOpen ||
+      showSettings ||
+      showRemindersModal ||
+      isChatOpen ||
+      Boolean(reminder) ||
+      showCompanionUpdateBanner;
     isExpandedRef.current = isExpanded;
 
     return (
@@ -746,6 +887,13 @@ export const App: React.FC = () => {
         className={`appu-desktop-companion-viewport ${
           isHidden ? 'appu-hidden' : ''
         } ${isExpanded ? 'menu-open' : 'menu-closed'} menu-h-${menuPlacement.horizontal} menu-v-${menuPlacement.vertical}`}
+        style={
+          {
+            '--companion-hitbox-w': `${Math.round(220 * companionScale)}px`,
+            '--companion-hitbox-h': `${Math.round(300 * companionScale)}px`,
+            '--companion-scale': String(companionScale),
+          } as React.CSSProperties
+        }
         onMouseMove={registerUserActivity}
         onClick={() => {
           registerUserActivity();
@@ -756,9 +904,18 @@ export const App: React.FC = () => {
         }}
         onContextMenu={(e) => {
           registerUserActivity();
+          if (showSettings || showRemindersModal || isChatOpen) {
+            if (isMenuOpen || isActionsPanelOpen) {
+              setIsMenuOpen(false);
+              setIsActionsPanelOpen(false);
+            }
+            return;
+          }
           e.preventDefault();
-          setIsMenuOpen((prev) => !prev);
-          setIsActionsPanelOpen(false);
+          if (isMenuOpen || isActionsPanelOpen) {
+            setIsMenuOpen(false);
+            setIsActionsPanelOpen(false);
+          }
         }}
         onMouseEnter={() => {
           registerUserActivity();
@@ -811,9 +968,17 @@ export const App: React.FC = () => {
           }}
           onContextMenu={(e) => {
             registerUserActivity();
-            // Strictly right-click opens the context menu
+            // Strictly right-click toggles the context menu
             e.preventDefault();
             e.stopPropagation();
+            if (isHidden || spawnState === 'hidden' || spawnState === 'spawning_out') return;
+            if (showSettings || showRemindersModal || isChatOpen) {
+              if (isMenuOpen || isActionsPanelOpen) {
+                setIsMenuOpen(false);
+                setIsActionsPanelOpen(false);
+              }
+              return;
+            }
             setIsMenuOpen((prev) => !prev);
             setIsActionsPanelOpen(false);
           }}
@@ -835,30 +1000,40 @@ export const App: React.FC = () => {
             isSleeping={characterStateLabel === 'Sleeping'}
           />
 
-          <Canvas
-            shadows
-            camera={{ position: [0, 0.16, 4.8], fov: 30, near: 0.1, far: 50 }}
-            gl={{
-              antialias: true,
-              alpha: true,
-              powerPreference: 'high-performance',
-            }}
-            className="three-canvas"
-          >
-            <AppuScene
+          {companionCharacter === 'rabbit-video' ? (
+            <VideoCharacterStage
+              characterId="rabbit-video"
               controls={controls}
               onControlsChange={setControls}
-              isMenuOpen={isExpanded}
-              menuSide={isCompanionMode ? menuPlacement.horizontal : 'left'}
-              spawnState={spawnState}
-              onSpawnComplete={() => setSpawnState('active')}
-              onDespawnComplete={() => {
-                setIsHidden(true);
-                setSpawnState('hidden');
-                window.desktopAPI?.notifyHideFinished?.();
-              }}
+              isCompanionMode={isCompanionMode}
+              onAnimationEnded={handleVideoAnimationEnded}
             />
-          </Canvas>
+          ) : (
+            <Canvas
+              shadows
+              camera={{ position: [0, 0.16, 4.8], fov: 30, near: 0.1, far: 50 }}
+              gl={{
+                antialias: true,
+                alpha: true,
+                powerPreference: 'high-performance',
+              }}
+              className="three-canvas"
+            >
+              <AppuScene
+                controls={controls}
+                onControlsChange={setControls}
+                isMenuOpen={isExpanded}
+                menuSide={isCompanionMode ? menuPlacement.horizontal : 'left'}
+                spawnState={spawnState}
+                onSpawnComplete={() => setSpawnState('active')}
+                onDespawnComplete={() => {
+                  setIsHidden(true);
+                  setSpawnState('hidden');
+                  window.desktopAPI?.notifyHideFinished?.();
+                }}
+              />
+            </Canvas>
+          )}
         </div>
 
         {/* Right Side: Redesigned Native Interaction Menu & Actions Gallery */}
@@ -891,6 +1066,9 @@ export const App: React.FC = () => {
             }}
             onWaveHello={() => {
               handleTriggerAction('wave');
+            }}
+            onWalk={() => {
+              handleTriggerAction('walk');
             }}
             onCheer={() => {
               handleTriggerAction('cheer');
@@ -927,6 +1105,7 @@ export const App: React.FC = () => {
             }}
             isWalkingHome={controls.animationState === 'walk'}
             activeActionId={activeActionId}
+            availableActions={activeAvailableActions}
             followCursorEnabled={followCursorEnabled}
             onToggleFollowCursor={() => setFollowCursorEnabled((prev) => !prev)}
           />
@@ -953,6 +1132,10 @@ export const App: React.FC = () => {
           onToggleFreeFall={handleToggleFreeFall}
           updaterStatus={updaterStatus}
           onAssistantNameChange={setAssistantName}
+          companionCharacter={companionCharacter}
+          onCompanionCharacterChange={setCompanionCharacter}
+          companionScale={companionScale}
+          onCompanionScaleChange={setCompanionScale}
         />
 
         {/* Reminders Management Modal */}
@@ -1017,6 +1200,21 @@ export const App: React.FC = () => {
                 });
               }
             }}
+          />
+        )}
+
+        {/* Software Update Notification Banner (Companion Mode) */}
+        {showCompanionUpdateBanner && !isHidden && (
+          <UpdateNotification
+            status={updaterStatus}
+            hasActiveReminder={Boolean(reminder)}
+            onDownload={() => window.desktopAPI?.updater?.downloadUpdate()}
+            onInstall={() => window.desktopAPI?.updater?.quitAndInstall()}
+            onPostpone={() => {
+              setUpdateBannerDismissedKey(updateBannerKey);
+              window.desktopAPI?.updater?.postponeUpdate();
+            }}
+            onRetry={() => window.desktopAPI?.updater?.checkForUpdates(true)}
           />
         )}
       </div>
@@ -1198,6 +1396,9 @@ export const App: React.FC = () => {
               onWaveHello={() => {
                 handleTriggerAction('wave');
               }}
+              onWalk={() => {
+                handleTriggerAction('walk');
+              }}
               onTakeSeat={() => {
                 handleTriggerAction('sit');
               }}
@@ -1228,6 +1429,7 @@ export const App: React.FC = () => {
                 setIsActionsPanelOpen((prev) => !prev);
               }}
               activeActionId={activeActionId}
+              availableActions={activeAvailableActions}
               followCursorEnabled={followCursorEnabled}
               onToggleFollowCursor={() => setFollowCursorEnabled((prev) => !prev)}
             />
@@ -1236,30 +1438,51 @@ export const App: React.FC = () => {
               isOpen={isActionsPanelOpen}
               onClose={() => setIsActionsPanelOpen(false)}
               activeActionId={activeActionId}
+              availableActions={activeAvailableActions}
               onTriggerAction={handleTriggerAction}
               onStandUp={handleStandUp}
               isGroundPose={isGroundPose}
             />
           </div>
 
-          <Canvas
-            shadows
-            camera={{ position: [0, 0.16, 4.8], fov: 30, near: 0.1, far: 50 }}
-            gl={{
-              antialias: true,
-              alpha: true,
-              powerPreference: 'high-performance',
-            }}
-            className="three-canvas"
-          >
-            <AppuScene
-              controls={controls}
-              onControlsChange={setControls}
-              isMenuOpen={isMenuOpen || isActionsPanelOpen}
-              menuSide={isCompanionMode ? menuPlacement.horizontal : 'left'}
-              spawnState={spawnState}
-            />
-          </Canvas>
+          {companionCharacter === 'rabbit-video' ? (
+            <div
+              style={{
+                width: '100%',
+                height: '100%',
+                transform: `scale(${companionScale})`,
+                transformOrigin: 'center center',
+                transition: 'transform 160ms ease',
+              }}
+            >
+              <VideoCharacterStage
+                characterId="rabbit-video"
+                controls={controls}
+                onControlsChange={setControls}
+                isCompanionMode={isCompanionMode}
+                onAnimationEnded={handleVideoAnimationEnded}
+              />
+            </div>
+          ) : (
+            <Canvas
+              shadows
+              camera={{ position: [0, 0.16, 4.8], fov: 30, near: 0.1, far: 50 }}
+              gl={{
+                antialias: true,
+                alpha: true,
+                powerPreference: 'high-performance',
+              }}
+              className="three-canvas"
+            >
+              <AppuScene
+                controls={controls}
+                onControlsChange={setControls}
+                isMenuOpen={isMenuOpen || isActionsPanelOpen}
+                menuSide={isCompanionMode ? menuPlacement.horizontal : 'left'}
+                spawnState={spawnState}
+              />
+            </Canvas>
+          )}
 
           {/* Interaction Guide Pill */}
           <div className="stage-hint-pill">
@@ -1292,6 +1515,10 @@ export const App: React.FC = () => {
         onToggleFreeFall={handleToggleFreeFall}
         updaterStatus={updaterStatus}
         onAssistantNameChange={setAssistantName}
+        companionCharacter={companionCharacter}
+        onCompanionCharacterChange={setCompanionCharacter}
+        companionScale={companionScale}
+        onCompanionScaleChange={setCompanionScale}
       />
 
       {/* Reminders Management Modal */}

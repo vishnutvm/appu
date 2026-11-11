@@ -129,5 +129,21 @@ describe('UpdaterService & Channel Management', () => {
     const checksumErr = new Error('sha512 checksum mismatch');
     const checksumMsg = (updater as any).formatErrorMessage(checksumErr);
     expect(checksumMsg).toContain('Security verification failed');
+
+    const sigErr = new Error('Code signature at URL did not pass validation');
+    expect((updater as any).isMacSignatureError(sigErr)).toBe(true);
+    expect((updater as any).formatErrorMessage(sigErr)).toContain('unsigned');
+  });
+
+  it('records downloadedFile path when update-downloaded is emitted', () => {
+    mockUpdater.emit('update-downloaded', {
+      version: '1.0.3',
+      releaseNotes: 'Fixes and Rabbit companion',
+      releaseDate: '2026-11-11',
+      downloadedFile: '/tmp/Appu-1.0.3-arm64-mac.zip',
+    });
+
+    expect(updater.getStatus().state).toBe('Downloaded');
+    expect((updater as any).downloadedUpdateFilePath).toBe('/tmp/Appu-1.0.3-arm64-mac.zip');
   });
 });

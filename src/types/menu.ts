@@ -36,6 +36,7 @@ export interface InteractionMenuProps {
   onHideAppu: () => void;
   onReturnHome: () => void;
   onWaveHello: () => void;
+  onWalk?: () => void;
   onTakeSeat: () => void;
   onGoToSleep: () => void;
   onCheer?: () => void;
@@ -54,4 +55,5 @@ export interface InteractionMenuProps {
   onOpenQuickAppu?: () => void;
   onOpenAssistantTab?: (tab: 'reminders' | 'tasks' | 'notes' | 'chat') => void;
   assistantName?: string;
+  availableActions?: string[] | null;
 }

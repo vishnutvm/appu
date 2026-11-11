@@ -52,8 +52,8 @@ html, body, #root {
 }
 
 .companion-character-hitbox {
-  width: 220px;
-  height: 300px;
+  width: var(--companion-hitbox-w, 220px);
+  height: var(--companion-hitbox-h, 300px);
   position: absolute;
   pointer-events: auto;
   cursor: grab;
@@ -118,31 +118,31 @@ html, body, #root {
 .appu-desktop-companion-viewport.menu-h-left .companion-character-hitbox {
   left: auto;
   right: 0;
-  width: 220px;
+  width: var(--companion-hitbox-w, 220px);
 }
 
 .appu-desktop-companion-viewport.menu-h-right .companion-character-hitbox {
   left: 0;
   right: auto;
-  width: 220px;
+  width: var(--companion-hitbox-w, 220px);
 }
 
 /* Vertical positioning */
 .appu-desktop-companion-viewport.menu-v-bottom .companion-character-hitbox {
   top: auto;
   bottom: 0;
-  height: 300px;
+  height: var(--companion-hitbox-h, 300px);
 }
 
 .appu-desktop-companion-viewport.menu-v-top .companion-character-hitbox {
   top: 0;
   bottom: auto;
-  height: 300px;
+  height: var(--companion-hitbox-h, 300px);
 }
 
 /* Menu anchor positions */
 .appu-desktop-companion-viewport.menu-h-right .companion-menu-anchor {
-  left: 168px;
+  left: calc(var(--companion-hitbox-w, 220px) - 52px);
   right: auto;
   width: auto;
   display: flex;
@@ -152,7 +152,7 @@ html, body, #root {
 
 .appu-desktop-companion-viewport.menu-h-left .companion-menu-anchor {
   left: auto;
-  right: 168px;
+  right: calc(var(--companion-hitbox-w, 220px) - 52px);
   width: auto;
   display: flex;
   flex-direction: row-reverse;

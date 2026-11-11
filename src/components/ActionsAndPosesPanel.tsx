@@ -12,6 +12,7 @@ interface ActionsAndPosesPanelProps {
   onTriggerAction: (actionId: AppuActionId) => void;
   onStandUp: () => void;
   isGroundPose?: boolean;
+  availableActions?: string[] | null;
 }
 
 export const ActionsAndPosesPanel: React.FC<ActionsAndPosesPanelProps> = ({
@@ -21,10 +22,20 @@ export const ActionsAndPosesPanel: React.FC<ActionsAndPosesPanelProps> = ({
   onTriggerAction,
   onStandUp,
   isGroundPose = false,
+  availableActions = null,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<ActionCategory | 'all'>('all');
 
-  const allActions = useMemo(() => AppuActionRegistry.getAll(), []);
+  const allActions = useMemo(() => {
+    const base = AppuActionRegistry.getAll();
+    if (!availableActions) return base;
+    return base.filter((a) => availableActions.includes(a.id));
+  }, [availableActions]);
+
+  const visibleCategories = useMemo(() => {
+    if (!availableActions) return ACTION_CATEGORIES;
+    return ACTION_CATEGORIES.filter((cat) => allActions.some((a) => a.category === cat.id));
+  }, [allActions, availableActions]);
 
   const filteredActions = useMemo(() => {
     if (selectedCategory === 'all') return allActions;
@@ -84,7 +95,7 @@ export const ActionsAndPosesPanel: React.FC<ActionsAndPosesPanelProps> = ({
           <span>All</span>
         </button>
 
-        {ACTION_CATEGORIES.map((cat) => (
+        {visibleCategories.map((cat) => (
           <button
             key={cat.id}
             type="button"

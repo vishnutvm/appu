@@ -530,6 +530,40 @@ export class DesktopMovementController {
   }
 
   /**
+   * Takes a natural on-screen stroll toward the opposite half of the workspace.
+   */
+  public async strollOnScreen(onDone?: () => void) {
+    this.stopWalking();
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    await this.initScreen();
+
+    let currentX = this.homeX;
+    let currentY = this.homeY;
+    if (window.desktopAPI?.getWindowPosition) {
+      try {
+        const pos = await window.desktopAPI.getWindowPosition();
+        currentX = pos.x;
+        currentY = pos.y;
+      } catch (e) {}
+    }
+
+    const minX = this.workAreaX + 24;
+    const maxX = Math.max(minX, this.workAreaX + this.screenWidth - 244);
+    const midpointX = (minX + maxX) / 2;
+    const distance = Math.min(340, Math.max(180, (maxX - minX) * 0.25));
+    const targetX = currentX >= midpointX
+      ? Math.max(minX, currentX - distance)
+      : Math.min(maxX, currentX + distance);
+
+    this.currentState = 'STROLLING_TO_NOTIFY';
+    this.walkTo(targetX, currentY, () => {
+      this.currentState = 'RESTING';
+      this.stateChangeCallback('idle', 'happy', 0);
+      if (onDone) onDone();
+    });
+  }
+
+  /**
    * Smoothly walks the window to target coordinates (targetX, targetY).
    * ZERO React re-renders in the 60fps loop.
    */

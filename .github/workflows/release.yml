@@ -22,7 +22,7 @@ permissions:
 jobs:
   build-macos:
     name: Build & Package macOS (ARM64 & x64)
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -65,10 +65,10 @@ jobs:
         with:
           name: macos-artifacts
           path: |
-            appu-3d/release/*.dmg
-            appu-3d/release/*-mac.zip
-            appu-3d/release/*.yml
-            appu-3d/release/*.blockmap
+            release/*.dmg
+            release/*-mac.zip
+            release/*.yml
+            release/*.blockmap
 
   build-windows:
     name: Build & Package Windows (NSIS x64)

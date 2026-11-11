@@ -9,3 +9,5 @@ release/
 !.env.example
 AI_CONTEXT.md
 *.notes.md
+appu-desktop-companion/
+website-prototype/
