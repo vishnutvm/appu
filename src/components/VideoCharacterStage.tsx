@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppuAnimationState, AppuEmotion, CharacterControlState } from '../types/character';
 import {
-  DEFAULT_RABBIT_VIDEO_MANIFEST,
+  getDefaultVideoManifest,
   loadVideoCharacterManifest,
   resolveVideoAnimation,
   VideoCharacterManifest,
@@ -49,17 +49,17 @@ const FRAGMENT_SHADER_SOURCE = `
     float gExcess = tex.g - maxRB;
     float gDominance = gExcess / max(tex.g, 0.001);
 
-    // Key out bright chroma green as well as shaded green floor shadows
-    float low = max(0.02, u_similarity - u_smoothness);
+    // Key out bright chroma green as well as shaded green floor shadows & curly hair fringes
+    float low = max(0.01, u_similarity - u_smoothness);
     float high = u_similarity + u_smoothness;
     float keyAbs = smoothstep(low, high, gExcess);
-    float keyShadow = smoothstep(0.45, 0.72, gDominance) * step(0.05, tex.g);
+    float keyShadow = smoothstep(0.24, 0.56, gDominance) * step(0.03, tex.g);
     float alpha = 1.0 - max(keyAbs, keyShadow);
 
-    // Suppress green spill along fur and shoe edges
-    float spillAmount = smoothstep(0.02, high, gExcess) * u_spill;
+    // Aggressive despill along hair curls, clothing edges, and white sneakers (no green tint)
+    float spillAmount = smoothstep(0.005, max(0.06, low + u_smoothness), gExcess) * u_spill;
     vec3 despilled = tex.rgb;
-    despilled.g = mix(tex.g, min(tex.g, maxRB + 0.02), spillAmount);
+    despilled.g = mix(tex.g, min(tex.g, maxRB * 0.97), min(1.0, spillAmount * 1.25));
 
     // Soft side vignette inside crop to guarantee zero border artifacts
     float edgeX = smoothstep(0.0, 0.015, v_texCoord.x) * smoothstep(1.0, 0.985, v_texCoord.x);
@@ -89,7 +89,9 @@ export const VideoCharacterStage: React.FC<VideoCharacterStageProps> = ({
   isCompanionMode,
   onAnimationEnded,
 }) => {
-  const [manifest, setManifest] = useState<VideoCharacterManifest>(DEFAULT_RABBIT_VIDEO_MANIFEST);
+  const [manifest, setManifest] = useState<VideoCharacterManifest>(() =>
+    getDefaultVideoManifest(characterId)
+  );
   const [videoReady, setVideoReady] = useState(false);
   const [useDirectAlpha, setUseDirectAlpha] = useState(false);
   const [webglFailed, setWebglFailed] = useState(false);
@@ -114,6 +116,7 @@ export const VideoCharacterStage: React.FC<VideoCharacterStageProps> = ({
 
   useEffect(() => {
     let cancelled = false;
+    setManifest(getDefaultVideoManifest(characterId));
     loadVideoCharacterManifest(characterId).then((loaded) => {
       if (!cancelled) setManifest(loaded);
     });
@@ -122,14 +125,18 @@ export const VideoCharacterStage: React.FC<VideoCharacterStageProps> = ({
     };
   }, [characterId]);
 
+  const effectiveAnimationState: AppuAnimationState = controls.isGrabbed
+    ? 'being_dragged'
+    : (controls.animationState as AppuAnimationState);
+
   const resolved = useMemo(
     () =>
       resolveVideoAnimation(
         manifest,
-        controls.animationState as AppuAnimationState,
+        effectiveAnimationState,
         controls.emotion as AppuEmotion
       ),
-    [manifest, controls.animationState, controls.emotion]
+    [manifest, effectiveAnimationState, controls.emotion]
   );
 
   const activeEntry = resolved.entry;

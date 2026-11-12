@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { UpdaterStatus, ReleaseChannel } from '../types/updater';
 import { CompanionCharacterId } from '../types/character';
+import { isValidCompanionCharacterId } from '../services/videoCharacterManifest';
 import './SettingsModal.css';
 
 interface SettingsModalProps {
@@ -110,7 +111,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         .then((s: any) => {
           if (s?.userName) setUserName(s.userName);
           if (s?.assistantName) setAssistantName(s.assistantName);
-          if (s?.companionCharacter === 'appu-3d' || s?.companionCharacter === 'rabbit-video') {
+          if (isValidCompanionCharacterId(s?.companionCharacter)) {
             setSelectedCharacter(s.companionCharacter);
           }
           if (typeof s?.companionScale === 'number' && Number.isFinite(s.companionScale)) {
@@ -120,7 +121,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         .catch(() => {});
     } else if (typeof window !== 'undefined') {
       const savedChar = window.localStorage.getItem('appu_companion_character');
-      if (savedChar === 'appu-3d' || savedChar === 'rabbit-video') {
+      if (isValidCompanionCharacterId(savedChar)) {
         setSelectedCharacter(savedChar);
       }
       const savedScale = Number(window.localStorage.getItem('appu_companion_scale'));
@@ -422,6 +423,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span className="companion-picker-name">Rabbit</span>
                 </div>
                 {selectedCharacter === 'rabbit-video' && (
+                  <CheckCircle2 size={14} className="companion-picker-check" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                role="radio"
+                aria-checked={selectedCharacter === 'human-video'}
+                className={`companion-picker-card ${selectedCharacter === 'human-video' ? 'selected' : ''}`}
+                onClick={() => handleSelectCharacter('human-video')}
+              >
+                <div className="companion-picker-thumb">
+                  <img
+                    src="./characters/human-video/character-thumbnail.png"
+                    alt="Human"
+                  />
+                </div>
+                <div className="companion-picker-meta">
+                  <span className="companion-picker-name">Human</span>
+                </div>
+                {selectedCharacter === 'human-video' && (
                   <CheckCircle2 size={14} className="companion-picker-check" />
                 )}
               </button>

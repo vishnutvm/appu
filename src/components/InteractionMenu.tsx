@@ -14,6 +14,8 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
   onTakeSeat,
   onGoToSleep,
   onCheer,
+  onThink,
+  onSurprised,
   onClap,
   onDance,
   onStandUp,
@@ -108,6 +110,28 @@ export const InteractionMenu: React.FC<InteractionMenuProps> = ({
       disabled: false,
       onClick: () => {
         onCheer ? onCheer() : onWaveHello();
+        onClose();
+      },
+    },
+    {
+      id: 'think',
+      label: 'Think',
+      visible: isActionAvailable('think'),
+      active: activeActionId === 'think' || characterState === 'Thinking',
+      disabled: false,
+      onClick: () => {
+        onThink ? onThink() : onWaveHello();
+        onClose();
+      },
+    },
+    {
+      id: 'surprised',
+      label: 'Surprised',
+      visible: isActionAvailable('surprised'),
+      active: activeActionId === 'surprised',
+      disabled: false,
+      onClick: () => {
+        onSurprised ? onSurprised() : onWaveHello();
         onClose();
       },
     },

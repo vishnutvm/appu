@@ -52,9 +52,9 @@ export const DEFAULT_RABBIT_VIDEO_MANIFEST: VideoCharacterManifest = {
   chromaKey: {
     enabled: true,
     color: [0.0, 1.0, 0.0],
-    similarity: 0.36,
-    smoothness: 0.14,
-    spillSuppression: 0.88,
+    similarity: 0.2,
+    smoothness: 0.12,
+    spillSuppression: 0.95,
   },
   crop: {
     x: 0.24,
@@ -89,8 +89,137 @@ export const DEFAULT_RABBIT_VIDEO_MANIFEST: VideoCharacterManifest = {
       alpha: false,
       priority: 3,
     },
+    thinking: {
+      file: './characters/rabbit-video/animations/assistant/thinking.mp4',
+      category: 'assistant',
+      durationSec: 2.8,
+      startTime: 0,
+      endTime: 2.8,
+      loop: false,
+      alpha: false,
+      priority: 2,
+    },
+    happy: {
+      file: './characters/rabbit-video/animations/emotions/happy.mp4',
+      category: 'emotions',
+      durationSec: 2.4,
+      startTime: 0,
+      endTime: 2.4,
+      loop: false,
+      alpha: false,
+      priority: 2,
+    },
+    surprised: {
+      file: './characters/rabbit-video/animations/emotions/surprised.mp4',
+      category: 'emotions',
+      durationSec: 2.05,
+      startTime: 0,
+      endTime: 2.05,
+      loop: false,
+      alpha: false,
+      priority: 3,
+    },
+    falling: {
+      file: './characters/rabbit-video/animations/physics/falling.mp4',
+      category: 'physics',
+      durationSec: 3.24,
+      startTime: 0,
+      endTime: 3.24,
+      loop: true,
+      alpha: false,
+      priority: 4,
+    },
+    landing: {
+      file: './characters/rabbit-video/animations/physics/landing.mp4',
+      category: 'physics',
+      durationSec: 1.3,
+      startTime: 0,
+      endTime: 1.3,
+      loop: false,
+      alpha: false,
+      priority: 4,
+    },
+    recovering: {
+      file: './characters/rabbit-video/animations/physics/recovering.mp4',
+      category: 'physics',
+      durationSec: 3.0,
+      startTime: 0,
+      endTime: 3.0,
+      loop: false,
+      alpha: false,
+      priority: 3,
+    },
   },
 };
+
+export const DEFAULT_HUMAN_VIDEO_MANIFEST: VideoCharacterManifest = {
+  id: 'human-video',
+  version: '1.0.0',
+  displayName: 'Human',
+  renderer: 'video',
+  referenceImage: './characters/human-video/character-reference.jpg',
+  thumbnail: './characters/human-video/character-thumbnail.png',
+  defaultAnimation: 'idle',
+  chromaKey: {
+    enabled: true,
+    color: [0.0, 1.0, 0.0],
+    similarity: 0.09,
+    smoothness: 0.07,
+    spillSuppression: 1.0,
+  },
+  crop: {
+    x: 0.3,
+    y: 0.0,
+    width: 0.4,
+    height: 1.0,
+  },
+  animations: {
+    idle: {
+      file: './characters/human-video/animations/idle/idle.mp4',
+      category: 'basic_idle',
+      durationSec: 3.12,
+      startTime: 0,
+      endTime: 3.12,
+      loop: true,
+      alpha: false,
+      priority: 1,
+    },
+    waving: {
+      file: './characters/human-video/animations/gestures/waving.mp4',
+      category: 'gestures',
+      durationSec: 2.7,
+      startTime: 0,
+      endTime: 2.7,
+      loop: false,
+      alpha: false,
+      priority: 2,
+    },
+    walking: {
+      file: './characters/human-video/animations/movement/walking.mp4',
+      category: 'movement',
+      durationSec: 1.44,
+      startTime: 0,
+      endTime: 1.44,
+      loop: true,
+      alpha: false,
+      priority: 3,
+    },
+  },
+};
+
+export function isVideoCompanionId(id: string | null | undefined): id is 'rabbit-video' | 'human-video' {
+  return id === 'rabbit-video' || id === 'human-video';
+}
+
+export function isValidCompanionCharacterId(
+  id: string | null | undefined
+): id is 'appu-3d' | 'rabbit-video' | 'human-video' {
+  return id === 'appu-3d' || id === 'rabbit-video' || id === 'human-video';
+}
+
+export function getDefaultVideoManifest(characterId: string): VideoCharacterManifest {
+  return characterId === 'human-video' ? DEFAULT_HUMAN_VIDEO_MANIFEST : DEFAULT_RABBIT_VIDEO_MANIFEST;
+}
 
 const STATE_TO_VIDEO_KEY: Partial<Record<AppuAnimationState, string>> = {
   idle: 'idle',
@@ -179,6 +308,14 @@ export function resolveVideoAnimation(
   if (mappedState) candidates.push(mappedState);
   candidates.push(animationState);
 
+  if (animationState === 'cheer') {
+    candidates.push('happy');
+  } else if (animationState === 'rising') {
+    candidates.push('falling');
+  } else if (animationState === 'bouncing') {
+    candidates.push('landing');
+  }
+
   if (animationState === 'idle' && emotion && emotion !== 'neutral') {
     const mappedEmotion = EMOTION_TO_VIDEO_KEY[emotion];
     if (mappedEmotion) candidates.push(mappedEmotion);
@@ -204,6 +341,7 @@ const VIDEO_KEY_TO_ACTION_IDS: Record<string, AppuActionId[]> = {
   waving: ['wave'],
   walking: ['walk'],
   cheering: ['cheer'],
+  happy: ['cheer'],
   clapping: ['clap'],
   dancing: ['dance'],
   sitting: ['sit', 'sit_relaxed', 'sit_legs_extended', 'sit_cross_legged'],
@@ -255,5 +393,5 @@ export async function loadVideoCharacterManifest(
   } catch {
     // Fallback to built-in default manifest when fetch fails (e.g. unit tests)
   }
-  return DEFAULT_RABBIT_VIDEO_MANIFEST;
+  return getDefaultVideoManifest(characterId);
 }

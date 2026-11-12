@@ -3,8 +3,10 @@ import { Canvas } from '@react-three/fiber';
 import { AppuScene } from './components/AppuScene';
 import { VideoCharacterStage } from './components/VideoCharacterStage';
 import {
-  DEFAULT_RABBIT_VIDEO_MANIFEST,
   getAvailableActionIds,
+  getDefaultVideoManifest,
+  isValidCompanionCharacterId,
+  isVideoCompanionId,
   loadVideoCharacterManifest,
 } from './services/videoCharacterManifest';
 import { CharacterControls } from './components/CharacterControls';
@@ -67,7 +69,7 @@ export const App: React.FC = () => {
   const [companionCharacter, setCompanionCharacter] = useState<CompanionCharacterId>(() => {
     if (typeof window !== 'undefined') {
       const saved = window.localStorage.getItem('appu_companion_character');
-      if (saved === 'rabbit-video' || saved === 'appu-3d') return saved;
+      if (isValidCompanionCharacterId(saved)) return saved;
     }
     return 'appu-3d';
   });
@@ -79,13 +81,16 @@ export const App: React.FC = () => {
     return 1.0;
   });
   const [videoAvailableActions, setVideoAvailableActions] = useState<string[]>(() =>
-    getAvailableActionIds(DEFAULT_RABBIT_VIDEO_MANIFEST)
+    isVideoCompanionId(companionCharacter)
+      ? getAvailableActionIds(getDefaultVideoManifest(companionCharacter))
+      : []
   );
 
   useEffect(() => {
-    if (companionCharacter !== 'rabbit-video') return;
+    if (!isVideoCompanionId(companionCharacter)) return;
+    setVideoAvailableActions(getAvailableActionIds(getDefaultVideoManifest(companionCharacter)));
     let cancelled = false;
-    loadVideoCharacterManifest('rabbit-video').then((manifest) => {
+    loadVideoCharacterManifest(companionCharacter).then((manifest) => {
       if (!cancelled) {
         setVideoAvailableActions(getAvailableActionIds(manifest));
       }
@@ -95,13 +100,15 @@ export const App: React.FC = () => {
     };
   }, [companionCharacter]);
 
-  const activeAvailableActions =
-    companionCharacter === 'rabbit-video' ? videoAvailableActions : null;
+  const activeAvailableActions = isVideoCompanionId(companionCharacter)
+    ? videoAvailableActions
+    : null;
 
   const lastActivityRef = useRef<number>(Date.now());
   const isExitingRef = useRef<boolean>(false);
   const isHiddenRef = useRef(false);
   const spawnStateRef = useRef<'spawning_in' | 'active' | 'spawning_out' | 'hidden'>('spawning_in');
+  const companionCharacterRef = useRef<CompanionCharacterId>(companionCharacter);
   const registerUserActivity = useCallback(() => {
     lastActivityRef.current = Date.now();
     isExitingRef.current = false;
@@ -113,6 +120,9 @@ export const App: React.FC = () => {
   useEffect(() => {
     spawnStateRef.current = spawnState;
   }, [spawnState]);
+  useEffect(() => {
+    companionCharacterRef.current = companionCharacter;
+  }, [companionCharacter]);
 
   const handleTogglePin = useCallback(() => {
     setIsPinned((prev) => {
@@ -395,7 +405,7 @@ export const App: React.FC = () => {
       }));
     }
 
-    if (actionId === 'walk' && companionCharacter === 'rabbit-video') {
+    if (actionId === 'walk' && isVideoCompanionId(companionCharacter)) {
       walkActionTimerRef.current = setTimeout(() => {
         walkActionTimerRef.current = null;
         setActiveActionId(null);
@@ -421,10 +431,19 @@ export const App: React.FC = () => {
   const handleVideoAnimationEnded = useCallback(() => {
     clearWalkActionTimer();
     setActiveActionId(null);
-    setControls((prev) => ({
-      ...prev,
-      animationState: 'idle',
-    }));
+    setControls((prev) => {
+      if (prev.animationState === 'landing' || prev.animationState === 'bouncing') {
+        return {
+          ...prev,
+          animationState: 'recovering',
+          emotion: 'curious',
+        };
+      }
+      return {
+        ...prev,
+        animationState: 'idle',
+      };
+    });
   }, [clearWalkActionTimer]);
 
 
@@ -559,7 +578,7 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (companionCharacter !== 'rabbit-video' || spawnState !== 'spawning_out') return;
+    if (!isVideoCompanionId(companionCharacter) || spawnState !== 'spawning_out') return;
     const timer = setTimeout(() => {
       setIsHidden(true);
       setSpawnState('hidden');
@@ -573,12 +592,23 @@ export const App: React.FC = () => {
     if (isCompanionMode) {
       movementControllerRef.current = new DesktopMovementController({
         onStateChange: (state: AppuAnimationState, emotion: AppuEmotion, facingRotation: number) => {
-          setControls((prev) => ({
-            ...prev,
-            animationState: state,
-            emotion: emotion,
-            rotation: facingRotation,
-          }));
+          setControls((prev) => {
+            if (isVideoCompanionId(companionCharacterRef.current)) {
+              const inLandingOrRecovery =
+                prev.animationState === 'landing' ||
+                prev.animationState === 'bouncing' ||
+                prev.animationState === 'recovering';
+              if (inLandingOrRecovery && (state === 'recovering' || state === 'idle')) {
+                return prev;
+              }
+            }
+            return {
+              ...prev,
+              animationState: state,
+              emotion: emotion,
+              rotation: facingRotation,
+            };
+          });
         },
       });
 
@@ -592,7 +622,7 @@ export const App: React.FC = () => {
             if (s?.assistantName) {
               setAssistantName(s.assistantName);
             }
-            if (s?.companionCharacter === 'rabbit-video' || s?.companionCharacter === 'appu-3d') {
+            if (isValidCompanionCharacterId(s?.companionCharacter)) {
               setCompanionCharacter(s.companionCharacter);
             }
             if (typeof s?.companionScale === 'number' && Number.isFinite(s.companionScale)) {
@@ -1000,9 +1030,9 @@ export const App: React.FC = () => {
             isSleeping={characterStateLabel === 'Sleeping'}
           />
 
-          {companionCharacter === 'rabbit-video' ? (
+          {isVideoCompanionId(companionCharacter) ? (
             <VideoCharacterStage
-              characterId="rabbit-video"
+              characterId={companionCharacter}
               controls={controls}
               onControlsChange={setControls}
               isCompanionMode={isCompanionMode}
@@ -1072,6 +1102,12 @@ export const App: React.FC = () => {
             }}
             onCheer={() => {
               handleTriggerAction('cheer');
+            }}
+            onThink={() => {
+              handleTriggerAction('think');
+            }}
+            onSurprised={() => {
+              handleTriggerAction('surprised');
             }}
             onClap={() => {
               handleTriggerAction('clap');
@@ -1399,6 +1435,15 @@ export const App: React.FC = () => {
               onWalk={() => {
                 handleTriggerAction('walk');
               }}
+              onCheer={() => {
+                handleTriggerAction('cheer');
+              }}
+              onThink={() => {
+                handleTriggerAction('think');
+              }}
+              onSurprised={() => {
+                handleTriggerAction('surprised');
+              }}
               onTakeSeat={() => {
                 handleTriggerAction('sit');
               }}
@@ -1445,7 +1490,7 @@ export const App: React.FC = () => {
             />
           </div>
 
-          {companionCharacter === 'rabbit-video' ? (
+          {isVideoCompanionId(companionCharacter) ? (
             <div
               style={{
                 width: '100%',
@@ -1456,7 +1501,7 @@ export const App: React.FC = () => {
               }}
             >
               <VideoCharacterStage
-                characterId="rabbit-video"
+                characterId={companionCharacter}
                 controls={controls}
                 onControlsChange={setControls}
                 isCompanionMode={isCompanionMode}

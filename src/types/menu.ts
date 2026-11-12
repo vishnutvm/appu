@@ -40,6 +40,8 @@ export interface InteractionMenuProps {
   onTakeSeat: () => void;
   onGoToSleep: () => void;
   onCheer?: () => void;
+  onThink?: () => void;
+  onSurprised?: () => void;
   onClap?: () => void;
   onDance?: () => void;
   onStandUp?: () => void;

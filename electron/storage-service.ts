@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 export type ReleaseChannel = 'development' | 'beta' | 'stable';
-export type CompanionCharacterId = 'appu-3d' | 'rabbit-video';
+export type CompanionCharacterId = 'appu-3d' | 'rabbit-video' | 'human-video';
 
 export interface StorageSettings {
   userName?: string;

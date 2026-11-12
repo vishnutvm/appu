@@ -1,6 +1,6 @@
 # Rabbit Companion — Animation Library & Gemini Prompt Roadmap
 
-This document tracks the **Rabbit** video companion assets currently integrated in Appu and stores all **52 pending animations** with ready-to-paste Gemini video-generation prompts for when your generation quota resets.
+This document tracks the **Rabbit** video companion assets currently integrated in Appu and stores the **46 pending animations** with ready-to-paste Gemini video-generation prompts for when your generation quota resets.
 
 ---
 
@@ -13,9 +13,15 @@ This document tracks the **Rabbit** video companion assets currently integrated 
 | `idle` | `public/characters/rabbit-video/animations/idle/idle.mp4` | Loop | Relaxed standing idle + natural blinking & breathing |
 | `waving` | `public/characters/rabbit-video/animations/gestures/waving.mp4` | One-shot (`0.0s–3.3s`) | Pulls paw from hoodie pocket, waves warmly, returns to idle |
 | `walking` | `public/characters/rabbit-video/animations/movement/walking.mp4` | Loop | Right-facing walk cycle (auto-flips horizontally when walking left) |
+| `thinking` | `public/characters/rabbit-video/animations/assistant/thinking.mp4` | One-shot (`2.80s`) | Finger to chin with tilted head; unlocks **Think** action & AI `thinking` state |
+| `happy` | `public/characters/rabbit-video/animations/emotions/happy.mp4` | One-shot (`2.40s`) | Joyful hop & raised-arms cheer; unlocks **Cheer** action & `happy` state |
+| `surprised` | `public/characters/rabbit-video/animations/emotions/surprised.mp4` | One-shot (`2.05s`) | Startled jump with wide eyes & "O" mouth; unlocks **Surprised** action & collision reaction |
+| `falling` | `public/characters/rabbit-video/animations/physics/falling.mp4` | Loop (`3.24s`) | Mid-air arms windmilling & kicking legs; plays on drag (`being_dragged`), `falling`, and `rising` |
+| `landing` | `public/characters/rabbit-video/animations/physics/landing.mp4` | One-shot (`1.30s`) | Touchdown impact & cushioned squat; plays on `landing` and `bouncing`, then advances to `recovering` |
+| `recovering` | `public/characters/rabbit-video/animations/physics/recovering.mp4` | One-shot (`3.00s`) | Stands up, dusts hands, slips paws back into pockets in neutral idle |
 
 ### How Dynamic Action Filtering Works
-- In `src/App.tsx`, `src/components/InteractionMenu.tsx`, and `src/components/ActionsAndPosesPanel.tsx`, when **Rabbit** is selected in Settings, the **Actions** menu automatically shows **only** the actions backed by an entry in `public/characters/rabbit-video/character.json` (currently **Wave** and **Walk**).
+- In `src/App.tsx`, `src/components/InteractionMenu.tsx`, and `src/components/ActionsAndPosesPanel.tsx`, when **Rabbit** is selected in Settings, the **Actions** menu automatically shows **only** the actions backed by an entry in `public/characters/rabbit-video/character.json` (currently **Wave**, **Walk**, **Cheer**, **Think**, and **Surprised**).
 - **Whenever you add a new animation clip** to `public/characters/rabbit-video/character.json`, it will automatically unlock in `InteractionMenu`, `ActionsAndPosesPanel`, and `resolveVideoAnimation()` (`src/services/videoCharacterManifest.ts`) with no UI changes required.
 
 ### Quick Guide: Adding a New Clip or 3-Action Batch Clip
@@ -46,31 +52,13 @@ This document tracks the **Rabbit** video companion assets currently integrated 
 
 ---
 
-## 3. Phase 2 Finishers (Remaining Core Animations — 2 Batch Videos)
+## 3. Phase 2 Core Animations ✅ Complete
 
-### Batch 1 — `thinking` + `happy` + `surprised` (9–10s)
-```text
-Animate the exact white furry bunny character from the reference image (royal blue glowing headphones with bunny icons, royal blue hoodie with white drawstrings and bunny logo, blue joggers, blue-and-white sneakers, pink inner ears, white tail) performing THREE distinct sequential reactions in one continuous locked-camera shot, briefly returning to neutral hands-in-pocket idle between each:
+### ~~Batch 1 — `thinking` + `happy` + `surprised` (9–10s)~~ ✅ Completed & Integrated
+- Split into `thinking.mp4` (`2.80s`), `happy.mp4` (`2.40s`), and `surprised.mp4` (`2.05s`) and registered in `character.json` & `videoCharacterManifest.ts`.
 
-[0.0s - 3.3s] ACTION 1 - THINKING: Pulls right hand out of hoodie pocket and rests finger thoughtfully under chin, tilts head slightly upward-right with a calm focused thinking expression and gentle ear twitch, then lowers hand back into pocket at 3.0s.
-[3.3s - 6.6s] ACTION 2 - HAPPY: Perks up energetically with a joyful shoulder bounce, lifts both hands slightly near waist in delight, gives a big bright toothy bunny smile with happy curved eyes, then settles back to neutral hands-in-pocket idle at 6.3s.
-[6.6s - 9.5s] ACTION 3 - SURPRISED: Recoils slightly backward with a tiny startled hop, eyes wide open in astonishment, cute "O" mouth, paws popping up briefly near chest, then relaxes smoothly back to neutral standing idle.
-
-Camera & Framing: Locked static eye-level camera, zero zoom or pan. Full body from tall ear tips to sneaker soles centered in the middle third of the frame with generous headroom above ears.
-Background: Completely flat, uniform, shadowless solid chroma-green (#00FF00). No floor shadows, no thought bubbles, no question marks, no text or watermarks over the character.
-```
-
-### Batch 2 — `falling` → `landing` → `recovering` (9–10s)
-```text
-Animate the exact white furry bunny character from the reference image (royal blue glowing headphones with bunny icons, royal blue hoodie with white drawstrings and bunny logo, blue joggers, blue-and-white sneakers, pink inner ears, white tail) performing ONE continuous physical fall-and-recovery sequence in three clear stages:
-
-[0.0s - 4.0s] STAGE 1 - MID-AIR FALLING: Suspended mid-frame floating/falling in place—knees slightly tucked, both arms windmilling rapidly upward in panic, legs pedaling lightly in mid-air, ears and hoodie drawstrings flapping upward from downward air rush, wide startled expression.
-[4.0s - 6.0s] STAGE 2 - LANDING: Both sneakers make crisp ground contact together, knees bend deeply into a cushioned braced landing squat with arms held slightly outward for balance, holding the low braced squat briefly.
-[6.0s - 9.5s] STAGE 3 - RECOVERING: Straightens legs smoothly back up to standing, lightly dusts both hands together once, slips hands calmly back into the hoodie pocket, and gives a relieved cheerful smile in neutral standing idle.
-
-Camera & Framing: Locked static eye-level camera, zero zoom or pan. Full body from raised hands/ear tips to sneaker soles centered in the middle third of the frame.
-Background: Completely flat, uniform, shadowless solid chroma-green (#00FF00). No ground line, no floor shadows, no props, no text.
-```
+### ~~Batch 2 — `falling` → `landing` → `recovering` (9–10s)~~ ✅ Completed & Integrated
+- Split into `falling.mp4` (`3.24s`, loop), `landing.mp4` (`1.30s`, one-shot), and `recovering.mp4` (`3.00s`, one-shot) and wired into drag/physics fall-and-recovery transitions (`VideoCharacterStage.tsx` & `App.tsx`).
 
 ---
 

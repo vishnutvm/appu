@@ -8,8 +8,10 @@ import { InteractionMenu } from '../components/InteractionMenu';
 import { ActionsAndPosesPanel } from '../components/ActionsAndPosesPanel';
 import { INITIAL_CONTROLS } from '../types/character';
 import {
+  DEFAULT_HUMAN_VIDEO_MANIFEST,
   DEFAULT_RABBIT_VIDEO_MANIFEST,
   getAvailableActionIds,
+  getDefaultVideoManifest,
   resolveVideoAnimation,
   VideoCharacterManifest,
 } from '../services/videoCharacterManifest';
@@ -29,6 +31,40 @@ describe('Video Companion POC Integration', () => {
     expect(resWalk.key).toBe('walking');
     expect(resWalk.entry.file).toContain('walking.mp4');
     expect(resWalk.entry.loop).toBe(true);
+
+    const resThink = resolveVideoAnimation(DEFAULT_RABBIT_VIDEO_MANIFEST, 'think', 'thinking');
+    expect(resThink.key).toBe('thinking');
+    expect(resThink.entry.file).toContain('thinking.mp4');
+    expect(resThink.entry.loop).toBe(false);
+
+    const resCheer = resolveVideoAnimation(DEFAULT_RABBIT_VIDEO_MANIFEST, 'cheer', 'happy');
+    expect(resCheer.key).toBe('happy');
+    expect(resCheer.entry.file).toContain('happy.mp4');
+    expect(resCheer.entry.loop).toBe(false);
+
+    const resSurprised = resolveVideoAnimation(DEFAULT_RABBIT_VIDEO_MANIFEST, 'surprised', 'surprised');
+    expect(resSurprised.key).toBe('surprised');
+    expect(resSurprised.entry.file).toContain('surprised.mp4');
+    expect(resSurprised.entry.loop).toBe(false);
+
+    const resFalling = resolveVideoAnimation(DEFAULT_RABBIT_VIDEO_MANIFEST, 'falling', 'surprised');
+    expect(resFalling.key).toBe('falling');
+    expect(resFalling.entry.file).toContain('falling.mp4');
+    expect(resFalling.entry.loop).toBe(true);
+
+    expect(resolveVideoAnimation(DEFAULT_RABBIT_VIDEO_MANIFEST, 'being_dragged').key).toBe('falling');
+    expect(resolveVideoAnimation(DEFAULT_RABBIT_VIDEO_MANIFEST, 'rising').key).toBe('falling');
+
+    const resLanding = resolveVideoAnimation(DEFAULT_RABBIT_VIDEO_MANIFEST, 'landing', 'surprised');
+    expect(resLanding.key).toBe('landing');
+    expect(resLanding.entry.file).toContain('landing.mp4');
+    expect(resLanding.entry.loop).toBe(false);
+    expect(resolveVideoAnimation(DEFAULT_RABBIT_VIDEO_MANIFEST, 'bouncing').key).toBe('landing');
+
+    const resRecovering = resolveVideoAnimation(DEFAULT_RABBIT_VIDEO_MANIFEST, 'recovering', 'curious');
+    expect(resRecovering.key).toBe('recovering');
+    expect(resRecovering.entry.file).toContain('recovering.mp4');
+    expect(resRecovering.entry.loop).toBe(false);
 
     const resFallback = resolveVideoAnimation(DEFAULT_RABBIT_VIDEO_MANIFEST, 'dance', 'excited');
     expect(resFallback.key).toBe('idle');
@@ -136,7 +172,7 @@ describe('Video Companion POC Integration', () => {
 
   it('renders VideoCharacterStage gracefully with rabbit-video manifest', () => {
     const onControlsChange = vi.fn();
-    render(
+    const { rerender } = render(
       <VideoCharacterStage
         characterId="rabbit-video"
         controls={{ ...INITIAL_CONTROLS, animationState: 'wave' }}
@@ -148,11 +184,21 @@ describe('Video Companion POC Integration', () => {
     const stage = screen.getByTestId('video-character-stage');
     expect(stage).toHaveAttribute('data-character-id', 'rabbit-video');
     expect(stage).toHaveAttribute('data-animation-key', 'waving');
+
+    rerender(
+      <VideoCharacterStage
+        characterId="rabbit-video"
+        controls={{ ...INITIAL_CONTROLS, animationState: 'idle', isGrabbed: true }}
+        onControlsChange={onControlsChange}
+        isCompanionMode={true}
+      />
+    );
+    expect(screen.getByTestId('video-character-stage')).toHaveAttribute('data-animation-key', 'falling');
   });
 
   it('shows only available actions in InteractionMenu and ActionsAndPosesPanel for Rabbit', () => {
     const available = getAvailableActionIds(DEFAULT_RABBIT_VIDEO_MANIFEST);
-    expect(available).toEqual(['wave', 'walk']);
+    expect(available).toEqual(['wave', 'walk', 'think', 'cheer', 'surprised']);
 
     const { unmount } = render(
       <InteractionMenu
@@ -165,6 +211,9 @@ describe('Video Companion POC Integration', () => {
         onReturnHome={vi.fn()}
         onWaveHello={vi.fn()}
         onWalk={vi.fn()}
+        onCheer={vi.fn()}
+        onThink={vi.fn()}
+        onSurprised={vi.fn()}
         onTakeSeat={vi.fn()}
         onGoToSleep={vi.fn()}
         onOpenSettings={vi.fn()}
@@ -176,7 +225,9 @@ describe('Video Companion POC Integration', () => {
     fireEvent.click(screen.getByText('Actions'));
     expect(screen.getByText('Wave')).toBeInTheDocument();
     expect(screen.getByText('Walk')).toBeInTheDocument();
-    expect(screen.queryByText('Cheer')).not.toBeInTheDocument();
+    expect(screen.getByText('Cheer')).toBeInTheDocument();
+    expect(screen.getByText('Think')).toBeInTheDocument();
+    expect(screen.getByText('Surprised')).toBeInTheDocument();
     expect(screen.queryByText('Clap')).not.toBeInTheDocument();
     expect(screen.queryByText('Dance')).not.toBeInTheDocument();
     expect(screen.queryByText('Sit')).not.toBeInTheDocument();
@@ -195,6 +246,60 @@ describe('Video Companion POC Integration', () => {
 
     expect(screen.getByText('Wave')).toBeInTheDocument();
     expect(screen.getByText('Walk')).toBeInTheDocument();
+    expect(screen.getByText('Cheer')).toBeInTheDocument();
+    expect(screen.getByText('Think')).toBeInTheDocument();
+    expect(screen.getByText('Surprised')).toBeInTheDocument();
     expect(screen.queryByText('Handstand')).not.toBeInTheDocument();
+  });
+
+  it('supports selecting and rendering Human (human-video) companion with core animations', () => {
+    expect(getDefaultVideoManifest('human-video').id).toBe('human-video');
+    expect(getAvailableActionIds(DEFAULT_HUMAN_VIDEO_MANIFEST)).toEqual(['wave', 'walk']);
+    expect(resolveVideoAnimation(DEFAULT_HUMAN_VIDEO_MANIFEST, 'wave').entry.file).toContain(
+      'human-video/animations/gestures/waving.mp4'
+    );
+    expect(resolveVideoAnimation(DEFAULT_HUMAN_VIDEO_MANIFEST, 'walk').entry.file).toContain(
+      'human-video/animations/movement/walking.mp4'
+    );
+
+    const onCompanionCharacterChange = vi.fn();
+    const saveSettings = vi.fn().mockResolvedValue(true);
+    (window as any).desktopAPI = {
+      storage: {
+        getSettings: vi.fn().mockResolvedValue({ companionCharacter: 'appu-3d' }),
+        saveSettings,
+      },
+      setIgnoreMouseEvents: vi.fn(),
+    };
+
+    const { unmount } = render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        companionCharacter="appu-3d"
+        onCompanionCharacterChange={onCompanionCharacterChange}
+      />
+    );
+
+    const humanRadio = screen.getByRole('radio', { name: /Human/i });
+    expect(humanRadio).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(humanRadio);
+    expect(onCompanionCharacterChange).toHaveBeenCalledWith('human-video');
+    expect(saveSettings).toHaveBeenCalledWith({ companionCharacter: 'human-video' });
+    unmount();
+
+    delete (window as any).desktopAPI;
+
+    render(
+      <VideoCharacterStage
+        characterId="human-video"
+        controls={{ ...INITIAL_CONTROLS, animationState: 'walk' }}
+        onControlsChange={vi.fn()}
+        isCompanionMode={false}
+      />
+    );
+    const stage = screen.getByTestId('video-character-stage');
+    expect(stage).toHaveAttribute('data-character-id', 'human-video');
+    expect(stage).toHaveAttribute('data-animation-key', 'walking');
   });
 });
