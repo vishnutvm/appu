@@ -9,7 +9,6 @@ import {
   isVideoCompanionId,
   loadVideoCharacterManifest,
 } from './services/videoCharacterManifest';
-import { CharacterControls } from './components/CharacterControls';
 import { ReminderBubble } from './components/ReminderBubble';
 import { InteractionMenu } from './components/InteractionMenu';
 import { ActionsAndPosesPanel } from './components/ActionsAndPosesPanel';
@@ -26,7 +25,8 @@ import { AppuActionId } from './types/actions';
 import { INITIAL_CONTROLS, CharacterControlState, AppuAnimationState, AppuEmotion, CompanionCharacterId } from './types/character';
 import { CompanionStateLabel } from './types/menu';
 import { UpdaterStatus } from './types/updater';
-import { Sparkles, Bell, Menu as MenuIcon, Play, Sliders } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
+import { DesktopOnlyGate } from './components/DesktopOnlyGate';
 import { MenuPlacement } from './types/desktop';
 import './types/desktop';
 import './App.css';
@@ -43,11 +43,6 @@ interface QueuedReminder {
 }
 
 export const App: React.FC = () => {
-  // Check if running in desktop companion mode (via ?mode=companion or window.desktopAPI)
-  const isCompanionMode =
-    typeof window !== 'undefined' &&
-    (window.location.search.includes('mode=companion') || !!window.desktopAPI);
-
   const [isPinned, setIsPinned] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
   const [spawnState, setSpawnState] = useState<'spawning_in' | 'active' | 'spawning_out' | 'hidden'>('spawning_in');
@@ -183,7 +178,6 @@ export const App: React.FC = () => {
     ? `${updaterStatus.state}:${updaterStatus.updateInfo?.version || ''}:${updaterStatus.error || ''}`
     : null;
   const showCompanionUpdateBanner =
-    isCompanionMode &&
     Boolean(updaterStatus) &&
     !reminder &&
     !showSettings &&
@@ -196,27 +190,25 @@ export const App: React.FC = () => {
   // Sync native window bounds between compact (220x300) and expanded menu / modals / chat
   const lastWindowExpandStateRef = useRef<string | null>(null);
   useEffect(() => {
-    if (isCompanionMode) {
-      const nextState =
-        showSettings || showRemindersModal
-          ? 'true:modal'
-          : isChatOpen
-          ? 'true:chat'
-          : isMenuOpen || isActionsPanelOpen || Boolean(reminder) || showCompanionUpdateBanner
-          ? 'true:menu'
-          : 'false';
-      if (lastWindowExpandStateRef.current === nextState) return;
-      lastWindowExpandStateRef.current = nextState;
+    const nextState =
+      showSettings || showRemindersModal
+        ? 'true:modal'
+        : isChatOpen
+        ? 'true:chat'
+        : isMenuOpen || isActionsPanelOpen || Boolean(reminder) || showCompanionUpdateBanner
+        ? 'true:menu'
+        : 'false';
+    if (lastWindowExpandStateRef.current === nextState) return;
+    lastWindowExpandStateRef.current = nextState;
 
-      if (showSettings || showRemindersModal) {
-        window.desktopAPI?.setMenuOpen(true, 'modal');
-      } else if (isChatOpen) {
-        window.desktopAPI?.setMenuOpen(true, 'chat');
-      } else if (isMenuOpen || isActionsPanelOpen || Boolean(reminder) || showCompanionUpdateBanner) {
-        window.desktopAPI?.setMenuOpen(true, 'menu');
-      } else {
-        window.desktopAPI?.setMenuOpen(false);
-      }
+    if (showSettings || showRemindersModal) {
+      window.desktopAPI?.setMenuOpen(true, 'modal');
+    } else if (isChatOpen) {
+      window.desktopAPI?.setMenuOpen(true, 'chat');
+    } else if (isMenuOpen || isActionsPanelOpen || Boolean(reminder) || showCompanionUpdateBanner) {
+      window.desktopAPI?.setMenuOpen(true, 'menu');
+    } else {
+      window.desktopAPI?.setMenuOpen(false);
     }
   }, [
     isMenuOpen,
@@ -226,14 +218,13 @@ export const App: React.FC = () => {
     reminder,
     isChatOpen,
     showCompanionUpdateBanner,
-    isCompanionMode,
   ]);
 
   const [controls, setControls] = useState<CharacterControlState>(() => ({
     ...INITIAL_CONTROLS,
-    transparentBackground: isCompanionMode,
-    showPedestal: !isCompanionMode, // In desktop mode, Appu walks directly on the wallpaper/taskbar
-    groundShadowEnabled: !isCompanionMode, // In companion mode, disable ground contact shadow to eliminate duplicate inverted reflection
+    transparentBackground: true,
+    showPedestal: false,
+    groundShadowEnabled: false,
     zoom: 4.8,
   }));
 
@@ -387,7 +378,7 @@ export const App: React.FC = () => {
     clearWalkActionTimer();
     setActiveActionId(actionId);
 
-    if (actionId === 'walk' && isCompanionMode && movementControllerRef.current && !isPinned) {
+    if (actionId === 'walk' && movementControllerRef.current && !isPinned) {
       movementControllerRef.current.strollOnScreen(() => {
         setActiveActionId(null);
       });
@@ -515,7 +506,6 @@ export const App: React.FC = () => {
   const isWindowDraggingRef = useRef(false);
   const isExpandedRef = useRef(false);
   useEffect(() => {
-    if (!isCompanionMode) return;
     const onDragStart = () => {
       isWindowDraggingRef.current = true;
       window.desktopAPI?.setIgnoreMouseEvents(false);
@@ -535,7 +525,7 @@ export const App: React.FC = () => {
       window.removeEventListener('appu-drag-start', onDragStart);
       window.removeEventListener('pointerup', onPointerUp);
     };
-  }, [isCompanionMode]);
+  }, []);
 
   // The AI's open_settings tool asks the renderer to show Preferences
   useEffect(() => {
@@ -544,30 +534,6 @@ export const App: React.FC = () => {
       setShowSettings(true);
     });
   }, []);
-
-  // Studio (browser) mode: RemindersManager runs the scheduler, show its bubble here
-  useEffect(() => {
-    if (isCompanionMode) return;
-    const present = (r: QueuedReminder) => {
-      const targetReminderId = r.id || `rem_${Date.now()}`;
-      if (activeReminderIdRef.current) {
-        if (activeReminderIdRef.current !== targetReminderId && !reminderQueueRef.current.some((q) => q.id === targetReminderId)) {
-          reminderQueueRef.current.push({ ...r, id: targetReminderId });
-        }
-        return;
-      }
-      activeReminderIdRef.current = targetReminderId;
-      setReminder({ ...r, id: targetReminderId, actionText: r.actionText || 'Done' });
-      latestHandlersRef.current.triggerAction('wave');
-    };
-    presentReminderRef.current = present;
-    const manager = RemindersManager.getInstance();
-    manager.setTriggerCallback(present);
-    return () => {
-      manager.setTriggerCallback(null);
-      presentReminderRef.current = null;
-    };
-  }, [isCompanionMode]);
 
   // Initial mount: finish spawn-in into active, and finish spawn-out for video character
   useEffect(() => {
@@ -589,7 +555,6 @@ export const App: React.FC = () => {
 
   // Initialize Desktop Autonomous Movement
   useEffect(() => {
-    if (isCompanionMode) {
       movementControllerRef.current = new DesktopMovementController({
         onStateChange: (state: AppuAnimationState, emotion: AppuEmotion, facingRotation: number) => {
           setControls((prev) => {
@@ -816,10 +781,7 @@ export const App: React.FC = () => {
         window.removeEventListener('appu-drag-start', handleDragStart);
         movementControllerRef.current?.destroy();
       };
-    } else {
-      return () => {};
-    }
-  }, [isCompanionMode]);
+  }, []);
 
   // Global keydown listeners for shortcuts (⌘H, ⌘0, ⌘K, etc.)
   useEffect(() => {
@@ -858,8 +820,6 @@ export const App: React.FC = () => {
 
   // Auto-Exit to off-screen after inactivity when "Stay on Screen" is OFF (!isPinned)
   useEffect(() => {
-    if (!isCompanionMode) return;
-
     const interval = setInterval(() => {
       // 1. If pinned ("Stay on Screen" is ON), stay visible on screen
       if (isPinned) return;
@@ -883,7 +843,6 @@ export const App: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [
-    isCompanionMode,
     isPinned,
     isHidden,
     spawnState,
@@ -898,11 +857,11 @@ export const App: React.FC = () => {
     handleHideAppu,
   ]);
 
-  // -------------------------------------------------------------
-  // COMPANION MODE RENDER: Transparent, Frameless Desktop Widget
-  // -------------------------------------------------------------
-  if (isCompanionMode) {
-    const isExpanded =
+  if (typeof window !== 'undefined' && !window.desktopAPI) {
+    return <DesktopOnlyGate />;
+  }
+
+  const isExpanded =
       isMenuOpen ||
       isActionsPanelOpen ||
       showSettings ||
@@ -912,9 +871,9 @@ export const App: React.FC = () => {
       showCompanionUpdateBanner;
     isExpandedRef.current = isExpanded;
 
-    return (
-      <div
-        className={`appu-desktop-companion-viewport ${
+  return (
+    <div
+      className={`appu-desktop-companion-viewport ${
           isHidden ? 'appu-hidden' : ''
         } ${isExpanded ? 'menu-open' : 'menu-closed'} menu-h-${menuPlacement.horizontal} menu-v-${menuPlacement.vertical}`}
         style={
@@ -1035,7 +994,6 @@ export const App: React.FC = () => {
               characterId={companionCharacter}
               controls={controls}
               onControlsChange={setControls}
-              isCompanionMode={isCompanionMode}
               onAnimationEnded={handleVideoAnimationEnded}
             />
           ) : (
@@ -1053,7 +1011,7 @@ export const App: React.FC = () => {
                 controls={controls}
                 onControlsChange={setControls}
                 isMenuOpen={isExpanded}
-                menuSide={isCompanionMode ? menuPlacement.horizontal : 'left'}
+                menuSide={menuPlacement.horizontal}
                 spawnState={spawnState}
                 onSpawnComplete={() => setSpawnState('active')}
                 onDespawnComplete={() => {
@@ -1254,335 +1212,6 @@ export const App: React.FC = () => {
           />
         )}
       </div>
-    );
-  }
-
-  // -------------------------------------------------------------
-  // STUDIO APPLICATION MODE RENDER (Browser Studio View)
-  // -------------------------------------------------------------
-  return (
-    <div
-      className={`appu-studio-window ${
-        controls.transparentBackground ? 'transparent-mode' : ''
-      }`}
-    >
-      {/* Top Application Window Bar with Window Controls */}
-      <header className="window-header">
-        <div className="window-brand">
-          <div className="brand-icon-box">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <rect
-                x="3"
-                y="6"
-                width="18"
-                height="13"
-                rx="5"
-                stroke="#f6c344"
-                strokeWidth="2"
-                fill="rgba(246, 195, 68, 0.2)"
-              />
-              <circle cx="8.5" cy="12" r="1.5" fill="#f6c344" />
-              <circle cx="15.5" cy="12" r="1.5" fill="#f6c344" />
-              <path
-                d="M10.5 15C11 15.5 13 15.5 13.5 15"
-                stroke="#f6c344"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-              <path d="M12 2V6" stroke="#f6c344" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </div>
-          <div className="brand-labels">
-            <span className="brand-heading">{assistantName}</span>
-            <span className="brand-sub">3D AI Assistant Character</span>
-          </div>
-        </div>
-
-        {/* Desktop window controls (minimize, maximize, close) */}
-        <div className="window-actions">
-          {/* Interaction Menu Toggle Button for Browser Studio */}
-          <button
-            className={`companion-mode-launcher-btn ${isMenuOpen ? 'active' : ''}`}
-            onClick={() => setIsMenuOpen((prev) => !prev)}
-            title={`Open ${assistantName} Desktop Interaction Menu`}
-            aria-label="Interaction Menu"
-          >
-            <MenuIcon size={13} className="text-gold" />
-            <span>Interaction Menu</span>
-          </button>
-
-          {/* Actions & Poses Panel Launcher */}
-          <button
-            className={`companion-mode-launcher-btn ${isActionsPanelOpen ? 'active' : ''}`}
-            onClick={() => setIsActionsPanelOpen((prev) => !prev)}
-            title="Open Actions & Poses Panel"
-            aria-label="Actions & Poses"
-          >
-            <Play size={12} className="text-gold" fill="#f6c344" />
-            <span>Actions & Poses</span>
-          </button>
-
-          {/* Developer-only Reminder simulation — never ship in production builds */}
-          {import.meta.env.DEV && (
-            <button
-              className="companion-mode-launcher-btn"
-              onClick={() => {
-                setReminder(
-                  reminder
-                    ? null
-                    : {
-                        title: 'Drink Water & Take a Stretch',
-                        intervalMinutes: 45,
-                        type: 'interval',
-                        actionText: 'Got It!',
-                      }
-                );
-              }}
-              title="Toggle Reminder Bubble Simulation (Dev Only)"
-              aria-label="Test Reminder"
-            >
-              <Bell size={13} className="text-gold" />
-              <span>Test Reminder</span>
-            </button>
-          )}
-
-          {/* Appu AI Chat Launcher */}
-          <button
-            className={`companion-mode-launcher-btn ${isChatOpen ? 'active' : ''}`}
-            onClick={() => setIsChatOpen((prev) => !prev)}
-            title="Open Appu AI Chat (⌘K)"
-            aria-label="Chat"
-          >
-            <Sparkles size={13} className="text-gold" />
-            <span>Chat</span>
-          </button>
-
-          {/* Preferences / Settings Modal Launcher */}
-          <button
-            className="companion-mode-launcher-btn"
-            onClick={() => setShowSettings(true)}
-            title="Open Appu Preferences & Software Updates"
-            aria-label="Preferences"
-          >
-            <Sliders size={13} className="text-gold" />
-            <span>Preferences</span>
-          </button>
-
-          {/* Studio is browser-only — decorative window chrome has no BrowserWindow to drive */}
-        </div>
-      </header>
-
-      {/* Main Studio Body: Sidebar on Left, 3D Canvas in Center, Floating Card on Right */}
-      <div className="studio-main-body">
-        {/* Fullscreen 3D Viewport with Appu on the illuminated gold pedestal */}
-        <div className="canvas-stage">
-          {reminder && (
-            <div className="studio-bubble-wrapper">
-              <ReminderBubble
-                id={reminder.id}
-                title={reminder.title}
-                message={reminder.message}
-                intervalMinutes={reminder.intervalMinutes}
-                specificTime={reminder.specificTime}
-                type={reminder.type}
-                actionText={reminder.actionText || 'Done'}
-                autoDismissSeconds={0}
-                side="right"
-                recurrence={reminder.recurrence}
-                onAction={() => {
-                  handleTriggerAction('cheer');
-                  setReminder(null);
-                  finishActiveReminder(1500);
-                }}
-                onSnooze={(mins = 5) => {
-                  if (reminder.id && reminder.id !== 'status_check') {
-                    RemindersManager.getInstance().snoozeReminder(reminder.id, mins);
-                  }
-                  handleTriggerAction('sad');
-                  setReminder(null);
-                  finishActiveReminder(1500);
-                }}
-                onDismiss={() => {
-                  setReminder(null);
-                  finishActiveReminder(1500);
-                }}
-              />
-            </div>
-          )}
-
-          {/* Floating Emote Indicator */}
-          <FloatingEmoteIndicator
-            state={controls.animationState}
-            isSleeping={characterStateLabel === 'Sleeping'}
-          />
-
-          {/* Interaction Menu & Actions & Poses Panel in Studio Stage */}
-          <div className="studio-menu-anchor">
-            <InteractionMenu
-              isOpen={isMenuOpen}
-              onClose={() => setIsMenuOpen(false)}
-              characterState={characterStateLabel}
-              assistantName={assistantName}
-              isPinned={isPinned}
-              onTogglePin={handleTogglePin}
-              onHideAppu={() => setIsMenuOpen(false)}
-              onReturnHome={() => {
-                setControls((prev) => ({ ...prev, animationState: 'idle' }));
-              }}
-              onWaveHello={() => {
-                handleTriggerAction('wave');
-              }}
-              onWalk={() => {
-                handleTriggerAction('walk');
-              }}
-              onCheer={() => {
-                handleTriggerAction('cheer');
-              }}
-              onThink={() => {
-                handleTriggerAction('think');
-              }}
-              onSurprised={() => {
-                handleTriggerAction('surprised');
-              }}
-              onTakeSeat={() => {
-                handleTriggerAction('sit');
-              }}
-              onGoToSleep={() => {
-                handleTriggerAction('sleep');
-              }}
-              onOpenReminders={() => {
-                setIsMenuOpen(false);
-                setIsActionsPanelOpen(false);
-                setShowRemindersModal(true);
-              }}
-              onOpenSettings={() => {
-                setShowSettings(true);
-              }}
-              onOpenQuickAppu={() => {
-                setIsMenuOpen(false);
-                setIsActionsPanelOpen(false);
-                setIsChatOpen(true);
-              }}
-              onQuitAppu={() => {
-                if (window.desktopAPI?.quitApp) {
-                  window.desktopAPI.quitApp();
-                  return;
-                }
-                window.close();
-              }}
-              onOpenActionsGallery={() => {
-                setIsActionsPanelOpen((prev) => !prev);
-              }}
-              activeActionId={activeActionId}
-              availableActions={activeAvailableActions}
-              followCursorEnabled={followCursorEnabled}
-              onToggleFollowCursor={() => setFollowCursorEnabled((prev) => !prev)}
-            />
-
-            <ActionsAndPosesPanel
-              isOpen={isActionsPanelOpen}
-              onClose={() => setIsActionsPanelOpen(false)}
-              activeActionId={activeActionId}
-              availableActions={activeAvailableActions}
-              onTriggerAction={handleTriggerAction}
-              onStandUp={handleStandUp}
-              isGroundPose={isGroundPose}
-            />
-          </div>
-
-          {isVideoCompanionId(companionCharacter) ? (
-            <div
-              style={{
-                width: '100%',
-                height: '100%',
-                transform: `scale(${companionScale})`,
-                transformOrigin: 'center center',
-                transition: 'transform 160ms ease',
-              }}
-            >
-              <VideoCharacterStage
-                characterId={companionCharacter}
-                controls={controls}
-                onControlsChange={setControls}
-                isCompanionMode={isCompanionMode}
-                onAnimationEnded={handleVideoAnimationEnded}
-              />
-            </div>
-          ) : (
-            <Canvas
-              shadows
-              camera={{ position: [0, 0.16, 4.8], fov: 30, near: 0.1, far: 50 }}
-              gl={{
-                antialias: true,
-                alpha: true,
-                powerPreference: 'high-performance',
-              }}
-              className="three-canvas"
-            >
-              <AppuScene
-                controls={controls}
-                onControlsChange={setControls}
-                isMenuOpen={isMenuOpen || isActionsPanelOpen}
-                menuSide={isCompanionMode ? menuPlacement.horizontal : 'left'}
-                spawnState={spawnState}
-              />
-            </Canvas>
-          )}
-
-          {/* Interaction Guide Pill */}
-          <div className="stage-hint-pill">
-            <Sparkles size={13} className="text-gold" />
-            <span>Click {assistantName} for Menu • Drag to move • Press ⌘0 / ⌘H to summon back to screen</span>
-          </div>
-        </div>
-
-        {/* Character Studio Controls: Left Navigation & Right Floating Card */}
-        <CharacterControls controls={controls} onChange={setControls} />
-      </div>
-
-      {/* Software Update Notification Banner */}
-      <UpdateNotification
-        status={updaterStatus}
-        hasActiveReminder={Boolean(reminder)}
-        onDownload={() => window.desktopAPI?.updater?.downloadUpdate()}
-        onInstall={() => window.desktopAPI?.updater?.quitAndInstall()}
-        onPostpone={() => window.desktopAPI?.updater?.postponeUpdate()}
-        onRetry={() => window.desktopAPI?.updater?.checkForUpdates(true)}
-      />
-
-      {/* Preferences / Settings Modal */}
-      <SettingsModal
-        isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
-        isPinned={isPinned}
-        onTogglePin={handleTogglePin}
-        freeFallEnabled={freeFallEnabled}
-        onToggleFreeFall={handleToggleFreeFall}
-        updaterStatus={updaterStatus}
-        onAssistantNameChange={setAssistantName}
-        companionCharacter={companionCharacter}
-        onCompanionCharacterChange={setCompanionCharacter}
-        companionScale={companionScale}
-        onCompanionScaleChange={setCompanionScale}
-      />
-
-      {/* Reminders Management Modal */}
-      <RemindersModal
-        isOpen={showRemindersModal}
-        onClose={() => setShowRemindersModal(false)}
-      />
-
-      {/* Floating Quick Appu AI Chat Window */}
-      <QuickAppuChat
-        isOpen={isChatOpen}
-        onClose={() => setIsChatOpen(false)}
-        assistantName={assistantName}
-        onOpenSettings={() => {
-          setIsChatOpen(false);
-          setShowSettings(true);
-        }}
-      />
-    </div>
   );
 };
 

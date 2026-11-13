@@ -12,7 +12,6 @@ interface VideoCharacterStageProps {
   characterId: string;
   controls: CharacterControlState;
   onControlsChange: React.Dispatch<React.SetStateAction<CharacterControlState>>;
-  isCompanionMode: boolean;
   onAnimationEnded?: () => void;
 }
 
@@ -86,7 +85,6 @@ export const VideoCharacterStage: React.FC<VideoCharacterStageProps> = ({
   characterId,
   controls,
   onControlsChange,
-  isCompanionMode,
   onAnimationEnded,
 }) => {
   const [manifest, setManifest] = useState<VideoCharacterManifest>(() =>
@@ -343,7 +341,7 @@ export const VideoCharacterStage: React.FC<VideoCharacterStageProps> = ({
       pointerHistoryRef.current.shift();
     }
 
-    if (isCompanionMode && window.desktopAPI?.moveWindowBy) {
+    if (window.desktopAPI?.moveWindowBy) {
       pointerLastScreenRef.current = { x: e.screenX, y: e.screenY };
       if (screenDx !== 0 || screenDy !== 0) {
         window.desktopAPI.moveWindowBy(screenDx, screenDy);
@@ -387,13 +385,11 @@ export const VideoCharacterStage: React.FC<VideoCharacterStageProps> = ({
         emotion: 'happy',
         isGrabbed: false,
       }));
-      if (isCompanionMode) {
-        window.dispatchEvent(
-          new CustomEvent('appu-released-with-velocity', {
-            detail: { vx: releaseVx, vy: releaseVy },
-          })
-        );
-      }
+      window.dispatchEvent(
+        new CustomEvent('appu-released-with-velocity', {
+          detail: { vx: releaseVx, vy: releaseVy },
+        })
+      );
     } else {
       onControlsChange((prev) => ({ ...prev, isGrabbed: false }));
     }
@@ -404,9 +400,7 @@ export const VideoCharacterStage: React.FC<VideoCharacterStageProps> = ({
 
   return (
     <div
-      className={`video-character-stage ${isCompanionMode ? 'is-companion' : 'is-studio'} ${
-        controls.isGrabbed ? 'is-grabbed' : ''
-      }`}
+      className={`video-character-stage is-companion ${controls.isGrabbed ? 'is-grabbed' : ''}`}
       data-testid="video-character-stage"
       data-character-id={characterId}
       data-animation-key={resolved.key}

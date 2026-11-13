@@ -67,7 +67,7 @@ describe('CharacterCameraController - Zoom & Framing Anti-Cropping Protection', 
     expect(antenna.y).toBeLessThan(0.95);
   });
 
-  it('4. Adapts safely for widescreen studio mode without over-constraining', () => {
+  it('4. Adapts safely for wide viewports without over-constraining', () => {
     const controller = new CharacterCameraController();
     const camera = new THREE.PerspectiveCamera(30, 16 / 9, 0.1, 50);
 

@@ -362,7 +362,7 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
     emotionCtrl.current.reset();
   }, [controls.emotion]);
 
-  // Sync autonomous roaming based on companion vs studio mode
+  // Sync autonomous roaming on the desktop companion
   useEffect(() => {
     if (controls.transparentBackground) {
       behaviourCtrl.current.setAutonomous(false);
@@ -377,7 +377,7 @@ export const AppuScene: React.FC<AppuSceneProps> = ({
     rotationCtrl.current.setTargetYaw(controls.rotation);
   }, [controls.rotation]);
 
-  // Listen to UI-driven animation state changes (from Studio buttons or Actions Panel)
+  // Listen to UI-driven animation state changes (menu / actions panel)
   useEffect(() => {
     if (controls.animationState !== lastUserAnimRef.current) {
       lastUserAnimRef.current = controls.animationState;

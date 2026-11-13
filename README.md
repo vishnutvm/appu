@@ -1,79 +1,110 @@
-# Appu — Interactive 3D AI Character Studio (v2.0 Redesign)
+# Appu
 
-An independent, browser-based, full-body 3D robotic companion and character studio built with React 19, TypeScript, Vite, Three.js, React Three Fiber (R3F), and Drei.
+**Open-source desktop AI companion** — a floating 3D character on your wallpaper with local reminders, memory, and optional **Google Gemini** chat (your API key).
 
-## Visual & Architecture Redesign Overview
+[![CI](https://github.com/vishnutvm/appu/actions/workflows/ci.yml/badge.svg)](https://github.com/vishnutvm/appu/actions/workflows/ci.yml)
+[![Release](https://github.com/vishnutvm/appu/actions/workflows/release.yml/badge.svg)](https://github.com/vishnutvm/appu/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 
-### 1. Character Proportions & Industrial Design
-- **Harmonious Humanoid Proportions**: Head scale adjusted from disproportionate cartoon oval down to an anatomically balanced ratio matching a friendly personal AI assistant.
-- **Substantial Multi-Part Torso**: Dual-shell upper chest and abdomen taper with graphite waist division and satin gold ring trims.
-- **Integrated Articulated Neck**: Visible cylindrical graphite neck joint with gold mechanical collar and base bezel ring, creating seamless connectivity between head and chest.
-- **Anatomical Arms & Hands**: Visible from front/three-quarters with graphite ball sockets, ceramic shoulder caps, gold accent rings, bicep and forearm segments, graphite palms, articulated thumbs, and multi-finger robotic hands.
-- **Balanced Legs & Boots**: Graphite hip sockets, ceramic thighs, articulated knees, calf cylinders, and rounded ceramic boots with flat gold sole plates and side mechanical damper discs.
-- **Deep OLED Facial Display**: Curved front glass with 1024x640 dynamic canvas rendering golden dotted luminous ring eyes, warm radial glow pupils, natural eyelid blinking, and expressive mouths across 7 emotions.
+[Website](https://appu-desktop-companion.vercel.app) · [Releases](https://github.com/vishnutvm/appu/releases) · [Discussions](https://github.com/vishnutvm/appu/discussions) · [Contributing](CONTRIBUTING.md) · [Architecture](docs/ARCHITECTURE.md) · [AI & privacy](docs/AI-AND-PRIVACY.md)
 
-### 2. Animation System
-- **Idle Motion**: Delta-time gentle breathing and vertical hover.
-- **Friendly Wave**: Left arm raises with smooth shoulder yaw/pitch/roll and forearm waving articulation.
-- **Walk Cycle**: Coordinated counter-swinging of arms and legs, knee flexing, and subtle body roll.
-- **Interactive Eye & Head Gaze**: Smooth lerped head tilting and pupil gaze tracking the mouse cursor.
-- **Blinking**: Semi-random natural blink cycles.
+---
 
-### 3. Studio Interface
-- Clean, minimal application header with active state pill (`IDLE • HAPPY`).
-- Slide-over studio customization drawer that can be opened and closed to maximize 3D focus.
-- Categorized controls:
-  - **Animations**: Idle, Wave, Walk, Breathing toggle, Blinking toggle, Pause/Resume.
-  - **Expressions**: Happy, Neutral, Curious, Confused, Surprised, Sleepy, Wink.
-  - **Appearance & Camera**: Full Body, Torso, Face, 3/4 View, Profile, Rotation slider, Distance slider.
-  - **Studio Lighting**: Soft Studio, Dramatic Key, Warm Ambient, Cyber Rim.
-  - **Advanced & Desktop**: Playback speed, Transparent background mode, Contact ground shadow toggle.
+## Screenshots
 
-### 4. AI Assistant (Desktop)
-- Chat with Appu (⌘K or the menu). Powered by Google Gemini through tools for reminders, memories, and app status.
-- Add your Gemini API key and choose the model in **Preferences → AI Brain & Intelligence**. The key is stored with the OS keychain (`safeStorage`); `GEMINI_API_KEY` in `.env` is used as a fallback.
-- Reminders support one-time, daily, weekly, and every-N-minutes/hours schedules; deleting reminders or memories through chat always asks for confirmation.
+Preview assets from the [official site](https://appu-desktop-companion.vercel.app) (`appu-desktop-companion` repo).
 
-## Running the Application
+<p align="center">
+  <img src="docs/images/hero-appu-companion.jpg" alt="Appu desktop companion on wallpaper" width="720" />
+</p>
 
-```bash
-npm install
-npm run dev
-```
+| Robot | Rabbit | Human (Vishnu) |
+|:-----:|:------:|:----------------:|
+| ![Appu robot companion](docs/images/hero-appu-companion.jpg) | ![Rabbit companion](docs/images/companion-rabbit.jpg) | ![Human companion](docs/images/companion-human.jpg) |
 
-Visit [http://localhost:5173/](http://localhost:5173/) in your browser.
+---
 
+## Why Appu
 
-## Desktop Packaging & Auto-Update System
+- **Desktop companion, not a web app** — Frameless overlay on macOS/Windows; right-click for menu, drag to move, ⌘K to chat.
+- **Choose your character** — 3D robot, procedural rabbit (AntiGravity physics), or video-manifest companions.
+- **Own your AI** — BYOK Gemini; chats and reminders stay in local SQLite (no Appu cloud).
+- **Ready to ship** — electron-builder, GitHub release CI, user-approved auto-updates.
 
-Appu provides production packaging and automated update flows:
+---
 
-- **Packaging**: `electron-builder` builds macOS DMG/ZIP (Apple Silicon & Intel) and Windows NSIS (`.exe`) installers.
-- **Auto-Updates**: `electron-updater` with explicit approval before downloading and restarting.
-- **Data Persistence**: SQLite database (`appu.db`), reminders, and user settings persist in `userData` (`~/Library/Application Support/Appu` on macOS, `%APPDATA%\Appu` on Windows) with automatic pre-install backups in `userData/backups/`.
-- **Channels**: Switch between `Stable`, `Beta`, and `Development` channels in Settings.
-- **CI/CD**: GitHub Actions workflow (`.github/workflows/release.yml`) builds, signs, notarizes, and publishes releases upon pushing a `v*` tag.
+## Features
 
-### Building & Packaging:
+| Area | What you get |
+|------|----------------|
+| **Floating companion** | Pin, hide/summon, walk on desktop, scale & character picker in Settings |
+| **Rabbit** | Hover, drag, spin, jump physics; blinks and ear twitches |
+| **Video companions** | `character.json` manifests + categorized MP4 loops |
+| **AI chat** | Gemini tools: reminders, memories, status; confirm before delete |
+| **Updates** | Stable / Beta / Development channels; download only when you approve |
+
+---
+
+## Quick start
+
+### Install (recommended)
+
+Download **macOS** (DMG/ZIP) or **Windows** (installer) from [GitHub Releases](https://github.com/vishnutvm/appu/releases).
+
+### Run from source
 
 ```bash
-# Run unit and integration tests (168 tests)
-npm test
-
-# Build frontend and electron
-npm run build:all
-
-# Package unpacked desktop application
-npm run pack
-
-# Build macOS DMG and ZIP installer
-npm run dist:mac
-
-# Build Windows NSIS installer
-npm run dist:win
-
-# Bump version and tag
-npm run version:bump patch  # or minor, major, beta
+git clone https://github.com/vishnutvm/appu.git
+cd appu
+npm ci
+cp .env.example .env   # optional GEMINI_API_KEY for local dev
+npm start              # Vite (internal) + Electron companion window
 ```
 
-See [Distribution & Updates Guide](docs/distribution-and-updates.md) for complete details.
+There is **no** supported browser-only mode. Opening the dev server URL alone shows a desktop-only notice.
+
+### AI (optional)
+
+1. Create a key in [Google AI Studio](https://aistudio.google.com/).
+2. **Preferences → AI Brain & Intelligence**, or `GEMINI_API_KEY` in `.env` for dev.
+3. Keys use OS `safeStorage` when available — [AI & privacy](docs/AI-AND-PRIVACY.md).
+
+---
+
+## Scripts
+
+| Command | Purpose |
+|---------|---------|
+| `npm start` / `npm run dev` | Desktop companion (dev) |
+| `npm test` | Vitest (**195** tests) |
+| `npm run build:all` | Production build + Electron |
+| `npm run pack` | Unpacked app in `release/` |
+| `npm run dist:mac` / `dist:win` | Installers |
+| `npm run version:bump patch` | Version + tag helper |
+
+Packaging: [Distribution & updates](docs/distribution-and-updates.md).
+
+---
+
+## Project structure
+
+```
+src/                   Companion UI, 3D scenes, controllers
+src/rabbit-companion/  Rabbit rig + AntiGravityController
+electron/              Main process, IPC, SQLite, Gemini, updater
+public/characters/     Companion assets + manifests
+docs/                  Architecture, privacy, releases
+```
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Security: [SECURITY.md](SECURITY.md).
+
+---
+
+## License
+
+[MIT](LICENSE) © Appu Contributors.

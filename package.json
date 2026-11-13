@@ -2,10 +2,11 @@
   "name": "appu",
   "productName": "Appu",
   "version": "1.0.4",
-  "description": "Appu - Cross-platform AI desktop companion and assistant",
+  "description": "Appu - Open-source desktop AI companion (Electron)",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "npm start",
+    "vite:dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "build:electron": "tsc -p tsconfig.electron.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type: 'commonjs'}))\"",
@@ -26,10 +27,24 @@
     "assistant",
     "ai-companion",
     "3d",
-    "desktop"
+    "desktop",
+    "react-three-fiber",
+    "gemini",
+    "open-source"
   ],
-  "author": "Appu Team",
-  "license": "ISC",
+  "homepage": "https://appu-desktop-companion.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vishnutvm/appu.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vishnutvm/appu/issues"
+  },
+  "author": "Appu Contributors",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "dependencies": {
     "@google/genai": "^2.32.0",

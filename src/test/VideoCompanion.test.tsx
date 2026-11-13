@@ -177,7 +177,6 @@ describe('Video Companion POC Integration', () => {
         characterId="rabbit-video"
         controls={{ ...INITIAL_CONTROLS, animationState: 'wave' }}
         onControlsChange={onControlsChange}
-        isCompanionMode={false}
       />
     );
 
@@ -190,7 +189,6 @@ describe('Video Companion POC Integration', () => {
         characterId="rabbit-video"
         controls={{ ...INITIAL_CONTROLS, animationState: 'idle', isGrabbed: true }}
         onControlsChange={onControlsChange}
-        isCompanionMode={true}
       />
     );
     expect(screen.getByTestId('video-character-stage')).toHaveAttribute('data-animation-key', 'falling');
@@ -295,7 +293,6 @@ describe('Video Companion POC Integration', () => {
         characterId="human-video"
         controls={{ ...INITIAL_CONTROLS, animationState: 'walk' }}
         onControlsChange={vi.fn()}
-        isCompanionMode={false}
       />
     );
     const stage = screen.getByTestId('video-character-stage');

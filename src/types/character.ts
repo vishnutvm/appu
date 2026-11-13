@@ -88,9 +88,6 @@ export type AppuFramingPreset = 'front' | 'threeQuarter' | 'side' | 'back' | 'po
 export type LightingPreset = 'studio' | 'dramatic' | 'warm' | 'cyber';
 
 export interface CharacterControlState {
-  // Navigation tabs in Studio UI
-  activeTab: 'animations' | 'expressions' | 'interactions' | 'camera' | 'lighting' | 'settings';
-
   // World Position (X, Z) on ground plane
   worldPosition: [number, number, number];
 
@@ -129,7 +126,6 @@ export interface CharacterControlState {
 }
 
 export const INITIAL_CONTROLS: CharacterControlState = {
-  activeTab: 'animations',
   worldPosition: [0, 0, 0],
   rotation: 0,
   targetRotation: 0,
