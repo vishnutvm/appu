@@ -8,7 +8,6 @@ import { InteractionMenu } from '../components/InteractionMenu';
 import { ActionsAndPosesPanel } from '../components/ActionsAndPosesPanel';
 import { INITIAL_CONTROLS } from '../types/character';
 import {
-  DEFAULT_HUMAN_VIDEO_MANIFEST,
   DEFAULT_RABBIT_VIDEO_MANIFEST,
   getAvailableActionIds,
   getDefaultVideoManifest,
@@ -248,55 +247,5 @@ describe('Video Companion POC Integration', () => {
     expect(screen.getByText('Think')).toBeInTheDocument();
     expect(screen.getByText('Surprised')).toBeInTheDocument();
     expect(screen.queryByText('Handstand')).not.toBeInTheDocument();
-  });
-
-  it('supports selecting and rendering Human (human-video) companion with core animations', () => {
-    expect(getDefaultVideoManifest('human-video').id).toBe('human-video');
-    expect(getAvailableActionIds(DEFAULT_HUMAN_VIDEO_MANIFEST)).toEqual(['wave', 'walk']);
-    expect(resolveVideoAnimation(DEFAULT_HUMAN_VIDEO_MANIFEST, 'wave').entry.file).toContain(
-      'human-video/animations/gestures/waving.mp4'
-    );
-    expect(resolveVideoAnimation(DEFAULT_HUMAN_VIDEO_MANIFEST, 'walk').entry.file).toContain(
-      'human-video/animations/movement/walking.mp4'
-    );
-
-    const onCompanionCharacterChange = vi.fn();
-    const saveSettings = vi.fn().mockResolvedValue(true);
-    (window as any).desktopAPI = {
-      storage: {
-        getSettings: vi.fn().mockResolvedValue({ companionCharacter: 'appu-3d' }),
-        saveSettings,
-      },
-      setIgnoreMouseEvents: vi.fn(),
-    };
-
-    const { unmount } = render(
-      <SettingsModal
-        isOpen={true}
-        onClose={vi.fn()}
-        companionCharacter="appu-3d"
-        onCompanionCharacterChange={onCompanionCharacterChange}
-      />
-    );
-
-    const humanRadio = screen.getByRole('radio', { name: /Human/i });
-    expect(humanRadio).toHaveAttribute('aria-checked', 'false');
-    fireEvent.click(humanRadio);
-    expect(onCompanionCharacterChange).toHaveBeenCalledWith('human-video');
-    expect(saveSettings).toHaveBeenCalledWith({ companionCharacter: 'human-video' });
-    unmount();
-
-    delete (window as any).desktopAPI;
-
-    render(
-      <VideoCharacterStage
-        characterId="human-video"
-        controls={{ ...INITIAL_CONTROLS, animationState: 'walk' }}
-        onControlsChange={vi.fn()}
-      />
-    );
-    const stage = screen.getByTestId('video-character-stage');
-    expect(stage).toHaveAttribute('data-character-id', 'human-video');
-    expect(stage).toHaveAttribute('data-animation-key', 'walking');
   });
 });

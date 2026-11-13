@@ -152,73 +152,18 @@ export const DEFAULT_RABBIT_VIDEO_MANIFEST: VideoCharacterManifest = {
   },
 };
 
-export const DEFAULT_HUMAN_VIDEO_MANIFEST: VideoCharacterManifest = {
-  id: 'human-video',
-  version: '1.0.0',
-  displayName: 'Human',
-  renderer: 'video',
-  referenceImage: './characters/human-video/character-reference.jpg',
-  thumbnail: './characters/human-video/character-thumbnail.png',
-  defaultAnimation: 'idle',
-  chromaKey: {
-    enabled: true,
-    color: [0.0, 1.0, 0.0],
-    similarity: 0.09,
-    smoothness: 0.07,
-    spillSuppression: 1.0,
-  },
-  crop: {
-    x: 0.3,
-    y: 0.0,
-    width: 0.4,
-    height: 1.0,
-  },
-  animations: {
-    idle: {
-      file: './characters/human-video/animations/idle/idle.mp4',
-      category: 'basic_idle',
-      durationSec: 3.12,
-      startTime: 0,
-      endTime: 3.12,
-      loop: true,
-      alpha: false,
-      priority: 1,
-    },
-    waving: {
-      file: './characters/human-video/animations/gestures/waving.mp4',
-      category: 'gestures',
-      durationSec: 2.7,
-      startTime: 0,
-      endTime: 2.7,
-      loop: false,
-      alpha: false,
-      priority: 2,
-    },
-    walking: {
-      file: './characters/human-video/animations/movement/walking.mp4',
-      category: 'movement',
-      durationSec: 1.44,
-      startTime: 0,
-      endTime: 1.44,
-      loop: true,
-      alpha: false,
-      priority: 3,
-    },
-  },
-};
-
-export function isVideoCompanionId(id: string | null | undefined): id is 'rabbit-video' | 'human-video' {
-  return id === 'rabbit-video' || id === 'human-video';
+export function isVideoCompanionId(id: string | null | undefined): id is 'rabbit-video' {
+  return id === 'rabbit-video';
 }
 
 export function isValidCompanionCharacterId(
   id: string | null | undefined
-): id is 'appu-3d' | 'rabbit-video' | 'human-video' {
-  return id === 'appu-3d' || id === 'rabbit-video' || id === 'human-video';
+): id is 'appu-3d' | 'rabbit-video' {
+  return id === 'appu-3d' || id === 'rabbit-video';
 }
 
-export function getDefaultVideoManifest(characterId: string): VideoCharacterManifest {
-  return characterId === 'human-video' ? DEFAULT_HUMAN_VIDEO_MANIFEST : DEFAULT_RABBIT_VIDEO_MANIFEST;
+export function getDefaultVideoManifest(_characterId?: string): VideoCharacterManifest {
+  return DEFAULT_RABBIT_VIDEO_MANIFEST;
 }
 
 const STATE_TO_VIDEO_KEY: Partial<Record<AppuAnimationState, string>> = {

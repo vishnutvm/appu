@@ -81,7 +81,7 @@ export type AppuAnimationState =
   // State machine transition states
   | 'returning_to_idle';
 
-export type CompanionCharacterId = 'appu-3d' | 'rabbit-video' | 'human-video';
+export type CompanionCharacterId = 'appu-3d' | 'rabbit-video';
 
 export type AppuFramingPreset = 'front' | 'threeQuarter' | 'side' | 'back' | 'portrait';
 

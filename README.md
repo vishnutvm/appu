@@ -19,9 +19,9 @@ Preview assets from the [official site](https://appu-desktop-companion.vercel.ap
   <img src="docs/images/hero-appu-companion.jpg" alt="Appu desktop companion on wallpaper" width="720" />
 </p>
 
-| Robot | Rabbit | Human (Vishnu) |
-|:-----:|:------:|:----------------:|
-| ![Appu robot companion](docs/images/hero-appu-companion.jpg) | ![Rabbit companion](docs/images/companion-rabbit.jpg) | ![Human companion](docs/images/companion-human.jpg) |
+| Robot | Rabbit |
+|:-----:|:------:|
+| ![Appu robot companion](docs/images/hero-appu-companion.jpg) | ![Rabbit companion](docs/images/companion-rabbit.jpg) |
 
 ---
 

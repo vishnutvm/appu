@@ -9,7 +9,7 @@ export type UpdateState =
   | 'Error';
 
 export type ReleaseChannel = 'development' | 'beta' | 'stable';
-export type CompanionCharacterId = 'appu-3d' | 'rabbit-video' | 'human-video';
+export type CompanionCharacterId = 'appu-3d' | 'rabbit-video';
 
 export interface ReleaseNoteInfo {
   version: string;

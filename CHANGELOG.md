@@ -13,7 +13,6 @@ All notable changes to this project are documented here. Release binaries and ch
 ## [1.0.4] - 2026-11-12
 
 ### Added
-- Human (`human-video`) companion with idle, wave, and walk clips
 - Rabbit Batch A/B: thinking, happy, surprised; falling, landing, recovering physics
 - Companion scale control persisted in settings
 

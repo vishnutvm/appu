@@ -49,20 +49,21 @@ const FRAGMENT_SHADER_SOURCE = `
     float gDominance = gExcess / max(tex.g, 0.001);
 
     // Key out bright chroma green as well as shaded green floor shadows & curly hair fringes
-    float low = max(0.01, u_similarity - u_smoothness);
+    float low = max(0.008, u_similarity - u_smoothness);
     float high = u_similarity + u_smoothness;
     float keyAbs = smoothstep(low, high, gExcess);
-    float keyShadow = smoothstep(0.24, 0.56, gDominance) * step(0.03, tex.g);
+    float keyShadow = smoothstep(0.22, 0.52, gDominance) * step(0.025, tex.g);
     float alpha = 1.0 - max(keyAbs, keyShadow);
 
-    // Aggressive despill along hair curls, clothing edges, and white sneakers (no green tint)
-    float spillAmount = smoothstep(0.005, max(0.06, low + u_smoothness), gExcess) * u_spill;
+    // Full-spectrum despill along hair curls, clothing edges, and white sneakers (zero green tint)
+    float spillFactor = clamp(u_spill * smoothstep(0.002, 0.035, gExcess), 0.0, 1.0);
     vec3 despilled = tex.rgb;
-    despilled.g = mix(tex.g, min(tex.g, maxRB * 0.97), min(1.0, spillAmount * 1.25));
+    despilled.g = mix(tex.g, min(tex.g, maxRB * 0.96), spillFactor);
 
-    // Soft side vignette inside crop to guarantee zero border artifacts
+    // Soft border feathering inside crop to guarantee zero boundary line artifacts
     float edgeX = smoothstep(0.0, 0.015, v_texCoord.x) * smoothstep(1.0, 0.985, v_texCoord.x);
-    alpha *= edgeX;
+    float edgeY = smoothstep(0.0, 0.01, v_texCoord.y) * smoothstep(1.0, 0.99, v_texCoord.y);
+    alpha *= edgeX * edgeY;
 
     // Premultiplied output for clean transparent canvas compositing
     gl_FragColor = vec4(despilled * alpha, alpha);

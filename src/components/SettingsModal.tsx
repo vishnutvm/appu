@@ -426,27 +426,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <CheckCircle2 size={14} className="companion-picker-check" />
                 )}
               </button>
-
-              <button
-                type="button"
-                role="radio"
-                aria-checked={selectedCharacter === 'human-video'}
-                className={`companion-picker-card ${selectedCharacter === 'human-video' ? 'selected' : ''}`}
-                onClick={() => handleSelectCharacter('human-video')}
-              >
-                <div className="companion-picker-thumb">
-                  <img
-                    src="./characters/human-video/character-thumbnail.png"
-                    alt="Human"
-                  />
-                </div>
-                <div className="companion-picker-meta">
-                  <span className="companion-picker-name">Human</span>
-                </div>
-                {selectedCharacter === 'human-video' && (
-                  <CheckCircle2 size={14} className="companion-picker-check" />
-                )}
-              </button>
             </div>
 
             <div className="companion-scale-row">
