@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, X, RotateCcw, AlertCircle, Timer, CheckCircle2, Mic } from 'lucide-react';
+import { Send, X, RotateCcw, AlertCircle, Timer, CheckCircle2 } from 'lucide-react';
 import { AIChatMessage } from '../types/desktop';
 import { CompanionCharacterId } from '../types/character';
 import { FormattedChatMessage } from './FormattedChatMessage';
@@ -491,17 +491,6 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
       )}
 
       <div className="appu-chat-input-bar">
-        {chatTheme === 'rabbit' && (
-          <button
-            type="button"
-            className="chat-mic-btn"
-            aria-label="Voice input (coming soon)"
-            disabled
-            title="Voice input coming soon"
-          >
-            <Mic size={16} />
-          </button>
-        )}
         <textarea
           ref={inputRef}
           className="chat-input-field"
