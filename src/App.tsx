@@ -438,11 +438,33 @@ export const App: React.FC = () => {
   }, [clearWalkActionTimer]);
 
 
+  /** Close chat and other expanded overlays so compact companion animations/drag work again. */
+  const dismissCompanionOverlays = useCallback(() => {
+    setIsChatOpen(false);
+    setShowSettings(false);
+    setShowRemindersModal(false);
+    setIsMenuOpen(false);
+    setIsActionsPanelOpen(false);
+  }, []);
+
+  const blockingOverlayRef = useRef({
+    isChatOpen: false,
+    showSettings: false,
+    showRemindersModal: false,
+  });
+  useEffect(() => {
+    blockingOverlayRef.current = { isChatOpen, showSettings, showRemindersModal };
+  }, [isChatOpen, showSettings, showRemindersModal]);
+
+  const hasBlockingOverlay = () => {
+    const o = blockingOverlayRef.current;
+    return o.isChatOpen || o.showSettings || o.showRemindersModal;
+  };
+
   // Smooth spawn-in / spawn-out & hide transitions
   const handleHideAppu = useCallback(() => {
     if (spawnState === 'spawning_out' || spawnState === 'hidden') return;
-    setIsMenuOpen(false);
-    setIsActionsPanelOpen(false);
+    dismissCompanionOverlays();
     setSpawnState('spawning_out');
 
     movementControllerRef.current?.stopWalking();
@@ -457,10 +479,13 @@ export const App: React.FC = () => {
       setSpawnState('hidden');
       window.desktopAPI?.notifyHideFinished?.();
     }, 400);
-  }, [spawnState]);
+  }, [spawnState, dismissCompanionOverlays]);
 
   const handleShowAppu = useCallback((goHome: boolean = false) => {
     registerUserActivity();
+    if (goHome) {
+      dismissCompanionOverlays();
+    }
     if (spawnState === 'active' && !isHidden && !movementControllerRef.current?.getIsOffScreen()) {
       if (goHome) {
         setIsPinned(false);
@@ -495,11 +520,30 @@ export const App: React.FC = () => {
         setSpawnState('active');
       });
     }
-  }, [spawnState, isHidden, registerUserActivity]);
+  }, [spawnState, isHidden, registerUserActivity, dismissCompanionOverlays]);
+
+  const handleGoHomeShortcut = useCallback(() => {
+    if (hasBlockingOverlay()) {
+      dismissCompanionOverlays();
+      handleHideAppu();
+      return;
+    }
+    handleShowAppu(true);
+  }, [dismissCompanionOverlays, handleHideAppu, handleShowAppu]);
 
   // IPC listeners are registered once; route them through the latest handlers
-  const latestHandlersRef = useRef({ hide: handleHideAppu, show: handleShowAppu, triggerAction: handleTriggerAction });
-  latestHandlersRef.current = { hide: handleHideAppu, show: handleShowAppu, triggerAction: handleTriggerAction };
+  const latestHandlersRef = useRef({
+    hide: handleHideAppu,
+    show: handleShowAppu,
+    triggerAction: handleTriggerAction,
+    goHome: handleGoHomeShortcut,
+  });
+  latestHandlersRef.current = {
+    hide: handleHideAppu,
+    show: handleShowAppu,
+    triggerAction: handleTriggerAction,
+    goHome: handleGoHomeShortcut,
+  };
 
   // While Appu is dragged the pointer can outrun the window; click-through must stay off
   // or the pointerup is lost and the drag never ends
@@ -748,8 +792,7 @@ export const App: React.FC = () => {
         if (!visible) {
           setIsHidden(true);
           setSpawnState('hidden');
-          setIsMenuOpen(false);
-          setIsActionsPanelOpen(false);
+          dismissCompanionOverlays();
         } else {
           setIsHidden(false);
           setSpawnState('active');
@@ -769,7 +812,7 @@ export const App: React.FC = () => {
         } else if (action === 'reappear') {
           latestHandlersRef.current.show(false);
         } else if (action === 'go-home') {
-          latestHandlersRef.current.show(true);
+          latestHandlersRef.current.goHome();
         } else if (action === 'wave' || action === 'sit' || action === 'sleep') {
           latestHandlersRef.current.triggerAction(action);
         }
@@ -797,10 +840,10 @@ export const App: React.FC = () => {
         return;
       }
 
-      // ⌘0 to summon Appu to home corner
+      // ⌘0 — home corner, or hide when chat/modal is blocking the companion
       if ((e.metaKey || e.ctrlKey) && e.key === '0') {
         e.preventDefault();
-        handleShowAppu(true);
+        handleGoHomeShortcut();
         return;
       }
 
@@ -816,7 +859,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [isHidden, spawnState, handleHideAppu, handleShowAppu]);
+  }, [isHidden, spawnState, handleHideAppu, handleShowAppu, handleGoHomeShortcut]);
 
   // Auto-Exit to off-screen after inactivity when "Stay on Screen" is OFF (!isPinned)
   useEffect(() => {
