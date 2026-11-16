@@ -1,21 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, X, RotateCcw, AlertCircle } from 'lucide-react';
+import { Send, X, RotateCcw, AlertCircle, Timer, CheckCircle2, Mic } from 'lucide-react';
 import { AIChatMessage } from '../types/desktop';
+import { CompanionCharacterId } from '../types/character';
 import { FormattedChatMessage } from './FormattedChatMessage';
-import { CompanionAvatar } from './CompanionAvatar';
+import { CompanionAvatar, companionIdToAvatarVariant } from './CompanionAvatar';
+import { companionIdToChatTheme, type ChatThemeId } from './chatTheme';
 import './QuickAppuChat.css';
 
 interface QuickAppuChatProps {
   isOpen: boolean;
   onClose: () => void;
   assistantName?: string;
+  companionCharacter?: CompanionCharacterId;
   onOpenSettings?: () => void;
 }
 
 const TOOL_LABELS: Record<string, [done: string, failed: string]> = {
-  create_reminder: ['Created reminder', "Couldn't create reminder"],
-  update_reminder: ['Updated reminder', "Couldn't update reminder"],
-  delete_reminder: ['Deleted reminder', "Couldn't delete reminder"],
+  create_reminder: ['Reminder set', "Couldn't create reminder"],
+  update_reminder: ['Reminder updated', "Couldn't update reminder"],
+  delete_reminder: ['Reminder removed', "Couldn't delete reminder"],
   list_reminders: ['Checked reminders', "Couldn't check reminders"],
   save_memory: ['Saved memory', "Couldn't save memory"],
   update_memory: ['Updated memory', "Couldn't update memory"],
@@ -23,13 +26,19 @@ const TOOL_LABELS: Record<string, [done: string, failed: string]> = {
   search_memory: ['Searched memory', "Couldn't search memory"],
 };
 
+const RABBIT_OUTCOME_TOOLS = new Set(['create_reminder', 'update_reminder', 'delete_reminder']);
+
 type ToolResult = NonNullable<AIChatMessage['toolResults']>[number];
 
+function toolFailed(r: ToolResult): boolean {
+  return Boolean(r.error) || r.result?.success === false;
+}
+
 /** One chip per tool; a tool counts as failed if any of its calls failed. */
-function toolChips(results: ToolResult[]): { label: string; failed: boolean; error?: string }[] {
+function toolChips(results: ToolResult[]): { label: string; failed: boolean; error?: string; name: string }[] {
   const byName = new Map<string, { failed: boolean; error?: string }>();
   for (const r of results) {
-    const failed = Boolean(r.error) || r.result?.success === false;
+    const failed = toolFailed(r);
     const prev = byName.get(r.name);
     if (!prev || (failed && !prev.failed)) {
       byName.set(r.name, { failed, error: r.error || r.result?.error });
@@ -38,16 +47,44 @@ function toolChips(results: ToolResult[]): { label: string; failed: boolean; err
   return Array.from(byName, ([name, { failed, error }]) => {
     const labels = TOOL_LABELS[name];
     const fallback = name.replace(/_/g, ' ');
-    return { label: labels ? labels[failed ? 1 : 0] : failed ? `${fallback} failed` : fallback, failed, error };
+    return {
+      name,
+      label: labels ? labels[failed ? 1 : 0] : failed ? `${fallback} failed` : fallback,
+      failed,
+      error,
+    };
   });
+}
+
+function formatReminderSubtitle(result: ToolResult['result']): string | undefined {
+  if (!result || result.success === false) return undefined;
+  const title = typeof result.title === 'string' ? result.title : undefined;
+  if (!title) return undefined;
+
+  if (typeof result.interval_minutes === 'number' && result.interval_minutes > 0) {
+    const unit = result.interval_minutes === 1 ? 'minute' : 'minutes';
+    return `${title} • in ${result.interval_minutes} ${unit}`;
+  }
+  if (typeof result.formatted_trigger === 'string' && result.formatted_trigger) {
+    return `${title} • ${result.formatted_trigger}`;
+  }
+  return title;
+}
+
+function primaryToolResult(results: ToolResult[], name: string): ToolResult | undefined {
+  return results.find((r) => r.name === name);
 }
 
 export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
   isOpen,
   onClose,
   assistantName: propAssistantName = 'Appu',
+  companionCharacter = 'rabbit-video',
   onOpenSettings,
 }) => {
+  const chatTheme: ChatThemeId = companionIdToChatTheme(companionCharacter);
+  const avatarVariant = companionIdToAvatarVariant(companionCharacter);
+
   const [assistantName, setAssistantName] = useState<string>(propAssistantName);
   const [messages, setMessages] = useState<AIChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -58,14 +95,12 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
   const [setupHint, setSetupHint] = useState<string | null>(null);
   const [currentAiState, setCurrentAiState] = useState<'idle' | 'listening' | 'thinking' | 'executing' | 'responding' | 'error'>('idle');
 
-  // Synchronize with parent prop changes
   useEffect(() => {
     if (propAssistantName) {
       setAssistantName(propAssistantName);
     }
   }, [propAssistantName]);
 
-  // Load configured companion name from storage on open
   useEffect(() => {
     if (!isOpen || typeof window === 'undefined' || !window.desktopAPI?.storage) return;
 
@@ -83,7 +118,6 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const chatWindowRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom of conversation
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth' });
   };
@@ -94,7 +128,6 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
     }
   }, [messages, isSending, isOpen]);
 
-  // Focus textarea when opened
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => {
@@ -103,7 +136,6 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
     }
   }, [isOpen]);
 
-  // Load existing conversation on open
   useEffect(() => {
     if (!isOpen || typeof window === 'undefined' || !window.desktopAPI?.ai) return;
 
@@ -122,7 +154,6 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
       });
   }, [isOpen]);
 
-  // Tell the user up front when the AI can't answer yet
   useEffect(() => {
     if (!isOpen || typeof window === 'undefined' || !window.desktopAPI?.ai?.getStatus) return;
     window.desktopAPI.ai
@@ -140,7 +171,6 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
       .catch(() => {});
   }, [isOpen]);
 
-  // Listen to AI state events from backend
   useEffect(() => {
     if (typeof window === 'undefined' || !window.desktopAPI?.ai) return;
 
@@ -155,7 +185,6 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
     };
   }, []);
 
-  // Handle keyboard shortcuts (Escape to close)
   useEffect(() => {
     if (!isOpen) return;
 
@@ -171,6 +200,11 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
 
   if (!isOpen) return null;
 
+  const inputPlaceholder =
+    chatTheme === 'rabbit'
+      ? `Ask ${assistantName}...`
+      : `Talk with ${assistantName}... (Enter to send)`;
+
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || inputText).trim();
     if (!text || isSending) return;
@@ -180,7 +214,6 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
     setIsSending(true);
     setInputText('');
 
-    // Optimistically append user message to UI
     const tempUserMsg: AIChatMessage = {
       id: `temp_${Date.now()}`,
       role: 'user',
@@ -227,7 +260,6 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
       const errStr = err?.message || `Failed to communicate with ${assistantName}`;
       setErrorMessage(errStr);
       setLastFailedText(text);
-      // The backend doesn't keep failed turns; drop the optimistic bubble and put the text back for retry
       setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
       setInputText(text);
     } finally {
@@ -263,21 +295,68 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
     'What reminders do I have today?',
   ];
 
+  const renderToolOutcomes = (msg: AIChatMessage) => {
+    if (!msg.toolResults?.length) return null;
+
+    if (chatTheme === 'rabbit') {
+      const chips = toolChips(msg.toolResults);
+      return (
+        <>
+          {chips.map((chip, idx) => {
+            if (RABBIT_OUTCOME_TOOLS.has(chip.name) && !chip.failed) {
+              const raw = primaryToolResult(msg.toolResults!, chip.name);
+              const subtitle = formatReminderSubtitle(raw?.result);
+              return (
+                <div key={idx} className="chat-outcome-card" role="status">
+                  <div className="chat-outcome-icon" aria-hidden="true">
+                    <Timer size={16} strokeWidth={2.2} />
+                  </div>
+                  <div className="chat-outcome-text">
+                    <div className="chat-outcome-title">{chip.label}</div>
+                    {subtitle && <div className="chat-outcome-subtitle">{subtitle}</div>}
+                  </div>
+                  <CheckCircle2 size={18} className="chat-outcome-check" aria-hidden="true" />
+                </div>
+              );
+            }
+            return (
+              <span
+                key={idx}
+                className={`chat-tool-chip ${chip.failed ? 'failed' : ''}`}
+                title={chip.error}
+              >
+                <span className="tool-chip-dot" />
+                <span>{chip.label}</span>
+              </span>
+            );
+          })}
+        </>
+      );
+    }
+
+    return toolChips(msg.toolResults).map((chip, idx) => (
+      <span key={idx} className={`chat-tool-chip ${chip.failed ? 'failed' : ''}`} title={chip.error}>
+        <span className="tool-chip-dot" />
+        <span>{chip.label}</span>
+      </span>
+    ));
+  };
+
   return (
     <div
       ref={chatWindowRef}
-      className="quick-appu-chat-window"
+      className={`quick-appu-chat-window chat-theme-${chatTheme}`}
+      data-chat-theme={chatTheme}
       role="dialog"
       aria-label={`${assistantName} Chat`}
       onMouseEnter={() => {
         window.desktopAPI?.setIgnoreMouseEvents(false);
       }}
     >
-      {/* Header */}
       <div className="appu-chat-header">
         <div className="chat-header-identity">
           <div className="chat-avatar-ring">
-            <CompanionAvatar size={18} />
+            <CompanionAvatar size={18} variant={avatarVariant} />
           </div>
           <span className="chat-companion-name">{assistantName}</span>
         </div>
@@ -304,12 +383,11 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
         </div>
       </div>
 
-      {/* Messages */}
       <div className="appu-chat-messages">
         {messages.length === 0 ? (
           <div className="chat-empty-state">
             <div className="empty-state-avatar-wrap">
-              <CompanionAvatar size={36} />
+              <CompanionAvatar size={36} variant={avatarVariant} />
             </div>
             <div className="empty-state-greeting">
               Hi! I'm {assistantName}. What are we working on?
@@ -330,36 +408,42 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
         ) : (
           messages.map((msg) => (
             <div key={msg.id} className={`chat-msg-row ${msg.role}`}>
-              {/* Tool Execution Badges if any */}
               {msg.toolResults && msg.toolResults.length > 0 && (
-                <div className="chat-tool-badges">
-                  {toolChips(msg.toolResults).map((chip, idx) => (
-                    <span
-                      key={idx}
-                      className={`chat-tool-chip ${chip.failed ? 'failed' : ''}`}
-                      title={chip.error}
-                    >
-                      <span className="tool-chip-dot" />
-                      <span>{chip.label}</span>
-                    </span>
-                  ))}
+                <div
+                  className={
+                    chatTheme === 'rabbit' ? 'chat-outcome-list' : 'chat-tool-badges'
+                  }
+                >
+                  {renderToolOutcomes(msg)}
                 </div>
               )}
-              <div className="chat-bubble">
-                <FormattedChatMessage content={msg.content} />
-              </div>
+              {msg.role === 'assistant' ? (
+                <div className="chat-assistant-line">
+                  <div className="chat-inline-avatar" aria-hidden="true">
+                    <CompanionAvatar size={22} variant={avatarVariant} />
+                  </div>
+                  <div className="chat-bubble">
+                    <FormattedChatMessage content={msg.content} />
+                  </div>
+                </div>
+              ) : (
+                <div className="chat-bubble">
+                  <FormattedChatMessage content={msg.content} />
+                </div>
+              )}
             </div>
           ))
         )}
 
-        {/* Thinking Indicator */}
         {isSending && (
           <div className="chat-thinking-bubble">
             <span className="thinking-dot" />
             <span className="thinking-dot" />
             <span className="thinking-dot" />
             <span className="thinking-label">
-              {currentAiState === 'executing' ? `Updating ${assistantName}...` : `${assistantName} is thinking...`}
+              {currentAiState === 'executing'
+                ? `Updating ${assistantName}...`
+                : `${assistantName} is thinking...`}
             </span>
           </div>
         )}
@@ -383,7 +467,6 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
         </div>
       )}
 
-      {/* Error Banner */}
       {errorMessage && (
         <div className="chat-error-banner" role="alert">
           <AlertCircle size={14} className="flex-shrink-0" />
@@ -407,12 +490,22 @@ export const QuickAppuChat: React.FC<QuickAppuChatProps> = ({
         </div>
       )}
 
-      {/* Input Bar */}
       <div className="appu-chat-input-bar">
+        {chatTheme === 'rabbit' && (
+          <button
+            type="button"
+            className="chat-mic-btn"
+            aria-label="Voice input (coming soon)"
+            disabled
+            title="Voice input coming soon"
+          >
+            <Mic size={16} />
+          </button>
+        )}
         <textarea
           ref={inputRef}
           className="chat-input-field"
-          placeholder={`Talk with ${assistantName}... (Enter to send)`}
+          placeholder={inputPlaceholder}
           rows={1}
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}

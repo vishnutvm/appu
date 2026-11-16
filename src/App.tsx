@@ -1153,6 +1153,7 @@ export const App: React.FC = () => {
           isOpen={isChatOpen && !isHidden}
           onClose={() => setIsChatOpen(false)}
           assistantName={assistantName}
+          companionCharacter={companionCharacter}
           onOpenSettings={() => {
             setIsChatOpen(false);
             setShowSettings(true);
